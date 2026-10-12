@@ -1,0 +1,58 @@
+import type { Course } from "./attendance";
+
+export const MOCK_COURSES: Course[] = [
+  {
+    code: "CT-159",
+    thCredits: 3,
+    prCredits: 1,
+    thPresent: 18,
+    thHeld: 23,
+    prPresent: 18,
+    prHeld: 18,
+  },
+  {
+    code: "CT-268",
+    thCredits: 2,
+    prCredits: 0,
+    thPresent: 12,
+    thHeld: 16,
+    prPresent: 0,
+    prHeld: 0,
+  },
+  {
+    code: "EA-244",
+    thCredits: 3,
+    prCredits: 0,
+    thPresent: 19,
+    thHeld: 20,
+    prPresent: 0,
+    prHeld: 0,
+  },
+  {
+    code: "EF-201",
+    thCredits: 2,
+    prCredits: 0,
+    thPresent: 0,
+    thHeld: 0,
+    prPresent: 0,
+    prHeld: 0,
+  },
+  {
+    code: "MT-221",
+    thCredits: 3,
+    prCredits: 0,
+    thPresent: 22,
+    thHeld: 24,
+    prPresent: 0,
+    prHeld: 0,
+  },
+  {
+    code: "MT-331",
+    thCredits: 3,
+    prCredits: 0,
+    thPresent: 20,
+    thHeld: 24,
+    prPresent: 0,
+    prHeld: 0,
+  },
+];

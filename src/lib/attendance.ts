@@ -83,6 +83,49 @@ export function analyzeAll(courses: Course[]): CourseResult[] {
   return courses.map(analyzeCourse);
 }
 
+export type SummaryReport = {
+  coursesAtRiskCount: number; // courses with status === "danger"
+  warningCount: number;       // courses with status === "warning"
+  lowestCourse: CourseResult | null;
+  safestCourse: CourseResult | null;
+};
+
+export function getAttendanceSummary(courses: Course[]): SummaryReport {
+  const results = analyzeAll(courses);
+  const dangerCourses = results.filter((r) => r.status === "danger");
+  const warningCourses = results.filter((r) => r.status === "warning");
+  const startedCourses = results.filter((r) => r.currentPercent !== null);
+
+  let lowestCourse: CourseResult | null = null;
+  let safestCourse: CourseResult | null = null;
+
+  for (const r of startedCourses) {
+    if (
+      !lowestCourse ||
+      (r.currentPercent !== null &&
+        lowestCourse.currentPercent !== null &&
+        r.currentPercent < lowestCourse.currentPercent)
+    ) {
+      lowestCourse = r;
+    }
+    if (
+      !safestCourse ||
+      (r.currentPercent !== null &&
+        safestCourse.currentPercent !== null &&
+        r.currentPercent > safestCourse.currentPercent)
+    ) {
+      safestCourse = r;
+    }
+  }
+
+  return {
+    coursesAtRiskCount: dangerCourses.length,
+    warningCount: warningCourses.length,
+    lowestCourse,
+    safestCourse,
+  };
+}
+
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
