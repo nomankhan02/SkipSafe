@@ -23,12 +23,12 @@ const report: Course[] = [
 
 // code -> [percent printed by portal, safeSkips (80%), hardSkips (75%)]
 const expected: Record<string, [number | null, number, number]> = {
-  "CT-159": [83.7, 7, 11],
-  "CT-268": [75, 2, 4],
-  "EA-244": [95, 8, 11],
-  "EF-201": [null, 6, 8],
-  "MT-221": [91.67, 7, 10],
-  "MT-331": [83.33, 5, 8],
+  "CT-159": [83.7, 7, 10],
+  "CT-268": [75, 2, 3],
+  "EA-244": [95, 8, 10],
+  "EF-201": [null, 6, 7],
+  "MT-221": [91.67, 7, 9],
+  "MT-331": [83.33, 5, 7],
 };
 
 for (const r of analyzeAll(report)) {
@@ -47,8 +47,10 @@ const bad = analyzeCourse(th("XX-100", 3, 30, 48));
 assert.equal(bad.status, "danger");
 assert.equal(bad.hardSkips, 0);
 
-// Edge: exactly on the limit (36/48 = 75%) -> 0 skips left, not negative
-const edge = analyzeCourse(th("XX-101", 3, 36, 48));
+// Edge: exactly on the limit (45/60 = 75%, 4 credits x 15 weeks = 60 planned)
+// -> 0 skips left, not negative, current at limit but cushion exhausted -> warning
+const edge = analyzeCourse(th("XX-101", 4, 45, 60));
 assert.equal(edge.hardSkips, 0);
+assert.equal(edge.status, "warning");
 
 console.log("\nAll tests passed.");

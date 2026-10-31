@@ -1,6 +1,6 @@
 // attendance.ts — pure logic, no UI, no network. Safe to test on its own.
 
-export const WEEKS_PER_SEMESTER = 16;
+export const WEEKS_PER_SEMESTER = 15;
 export const HARD_LIMIT = 75; // real exam-eligibility rule (per course)
 export const SAFE_LIMIT = 80; // our cushion, shown as "stay above 80%"
 
@@ -12,8 +12,8 @@ export type Course = {
   thHeld: number;
   prPresent: number;
   prHeld: number;
-  // Optional overrides. If missing: theory = credits * 16 weeks,
-  // practical = what's been held so far (student can edit this).
+  // Optional overrides. If missing: theory = credits * 15 weeks (16 calendar
+  // weeks minus 1 midterm week), practical = what's been held so far (student can edit this).
   thPlanned?: number;
   prPlanned?: number;
 };
