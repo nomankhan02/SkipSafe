@@ -21,7 +21,7 @@ export function ParticleNumber({
     decimals ?? (value.toString().split(".")[1]?.length || 0);
 
   const formattedText = `${value.toFixed(precision)}${suffix}`;
-  const [assembled, setAssembled] = useState(shouldReduceMotion);
+  const [, setAssembled] = useState(shouldReduceMotion);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showCanvas, setShowCanvas] = useState(!shouldReduceMotion);
 

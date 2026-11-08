@@ -75,7 +75,7 @@ export function Interactive3DLogo({ className = "size-10" }: { className?: strin
     let previousMousePosition = { x: 0, y: 0 };
     let targetRotationX = 0.3;
     let targetRotationY = 0.4;
-    let autoRotateSpeed = 0.008;
+    const autoRotateSpeed = 0.008;
 
     const onPointerDown = (e: PointerEvent) => {
       isDragging = true;

@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Tests, types, lint, build and security checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Attendance calculation tests
+        run: npm run test:attendance
+
+      # The private PDF fixture is gitignored. Create a synthetic, non-personal
+      # fixture for CI only; this script never overwrites an existing file.
+      - name: Generate synthetic parser fixture
+        run: npm run generate:fixture
+
+      - name: PDF parser tests
+        run: npm run test:parser
+
+      - name: NED connection boundary tests
+        run: npm run test:ned
+
+      - name: Production build
+        run: npm run build
+
+      # Runs after build so the client-bundle scan is active.
+      - name: Privacy regression tests
+        run: npm run test:privacy
+
+      # Block on critical production vulnerabilities. Production findings are
+      # currently zero after moving the shadcn CLI to devDependencies; the next
+      # non-blocking step keeps any future low/moderate findings visible.
+      - name: Dependency audit (production, blocks on critical)
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Dependency audit (production, informational)
+        continue-on-error: true
+        run: npm audit --omit=dev

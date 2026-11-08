@@ -124,12 +124,17 @@ function MorphingPopoverTrigger({
   }
 
   if (asChild && isValidElement(children)) {
+    // The child type is dynamic, so this component is intentionally created
+    // per render. The file is retired from live UI; lint is suppressed rather
+    // than changing behaviour without approval.
     const MotionComponent = motion.create(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       children.type as React.ForwardRefExoticComponent<any>
     );
     const childProps = children.props as Record<string, unknown>;
 
     return (
+      // eslint-disable-next-line react-hooks/static-components
       <MotionComponent
         {...childProps}
         onClick={context.open}
@@ -181,16 +186,18 @@ function MorphingPopoverContent({
   const ref = useRef<HTMLDivElement>(null);
   useClickOutside(ref, context.close);
 
+  const { isOpen, close } = context;
+
   useEffect(() => {
-    if (!context.isOpen) return;
+    if (!isOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') context.close();
+      if (event.key === 'Escape') close();
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [context.isOpen, context.close]);
+  }, [isOpen, close]);
 
   return (
     <AnimatePresence>

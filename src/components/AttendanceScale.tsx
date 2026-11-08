@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
-import { HARD_LIMIT, SAFE_LIMIT, type Status } from "@/lib/attendance";
+import { HARD_LIMIT, type Status } from "@/lib/attendance";
 
 const FILL_BY_STATUS: Record<Status, string> = {
   safe: "fill-status-safe",
@@ -30,14 +30,14 @@ export function AttendanceScale({
   return (
     <div className={className}>
       <svg
-        className="block h-3 w-full"
+        className="block h-2.5 w-full"
         viewBox="0 0 100 6"
         preserveAspectRatio="none"
         role="progressbar"
         aria-valuenow={percent ?? undefined}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={`Attendance progress for ${code}. Exam limit ${HARD_LIMIT}%, safe cushion ${SAFE_LIMIT}%.`}
+        aria-label={`Attendance progress for ${code}. Exam limit ${HARD_LIMIT}%.`}
       >
         <rect x={0} y={1} width={100} height={4} className="fill-muted" />
         {percent !== null && (
@@ -60,17 +60,10 @@ export function AttendanceScale({
           y={0}
           width={0.8}
           height={6}
-          className="fill-foreground/60"
-        />
-        <rect
-          x={SAFE_LIMIT - 0.4}
-          y={0}
-          width={0.8}
-          height={6}
-          className="fill-status-safe"
+          className="fill-foreground/70"
         />
       </svg>
-      <div className="relative mt-1 h-4 select-none leading-none">
+      <div className="relative mt-1.5 h-4 select-none text-[11px] font-medium leading-none">
         <span className="absolute left-0 text-[10px] text-muted-foreground">
           0%
         </span>
@@ -78,16 +71,10 @@ export function AttendanceScale({
           100%
         </span>
         <span
-          className="font-pixel absolute text-sm text-muted-foreground"
-          style={{ left: `${HARD_LIMIT}%`, transform: "translateX(calc(-100% - 3px))" }}
+          className="font-bricolage absolute font-semibold tracking-tight text-foreground tabular-nums"
+          style={{ left: `${HARD_LIMIT}%`, transform: "translateX(-50%)" }}
         >
-          {HARD_LIMIT}
-        </span>
-        <span
-          className="font-pixel absolute text-sm text-status-safe"
-          style={{ left: `calc(${SAFE_LIMIT}% + 3px)` }}
-        >
-          {SAFE_LIMIT}
+          {HARD_LIMIT}% Limit
         </span>
       </div>
     </div>

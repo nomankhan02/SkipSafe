@@ -42,7 +42,7 @@ export function BackgroundParticleCanvas() {
     let height = (canvas.height = window.innerHeight);
 
     const mousePos = { x: -1000, y: -1000 };
-    let shockwaves: Shockwave[] = [];
+    const shockwaves: Shockwave[] = [];
     let particles: Particle[] = [];
 
     const handleResize = () => {
@@ -131,9 +131,7 @@ export function BackgroundParticleCanvas() {
     window.addEventListener("mouseleave", handleMouseLeave);
     window.addEventListener("mousedown", handleClick);
 
-    let time = 0;
     const render = () => {
-      time += 1;
       ctx.clearRect(0, 0, width, height);
 
       // Render subtle shockwave ripple
