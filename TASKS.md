@@ -18,8 +18,8 @@ Rules:
 - [x] Attendance domain model + pure logic (`src/lib/attendance.ts`) — commit `e4f57c3`
 - [x] Attendance tests (`src/lib/attendance.test.ts`) — passing
 - [x] PDF parser (`src/lib/parseReport.ts`) + tests — commit `5d50302`; passing
-- [x] Sample fixture `test-data/sample-attendance.pdf` — exists; `test-data/` gitignored
-- [x] Dashboard with mock courses — commit `b1afd54`
+- [x] Synthetic fixture `test-data/sample-attendance.pdf` — generated via `npm run generate:fixture`; `test-data/` is git-ignored (real PDFs are never kept in the repo)
+- [x] Dashboard initial scaffold — commit `b1afd54` (mock courses later removed; app has no mock data)
 - [x] Legacy exploratory UI (particles, 3D logo, theme toggle) — commit `b59ad2c` (**superseded**, see §4)
 - [x] `/` → `/dashboard` redirect
 - [x] Initial audit: architecture inventory, calculator/parser verification, lint/build baseline (then 36 errors/9 warnings), dependency + security audit
@@ -35,7 +35,7 @@ Rules:
 ### Phase C — Semester correction (complete, protected-file change by explicit approval)
 
 - [x] `WEEKS_PER_SEMESTER` 16 → **15** in `attendance.ts` with matching test re-baseline (hardSkips: CT-159 10, CT-268 3, EA-244 10, EF-201 7, MT-221 9, MT-331 7; XX-101 edge case → warning)
-- [x] Dashboard copy interpolated from constants (no hardcoded 16/75/80)
+- [x] Dashboard copy interpolated from constants (no hardcoded 16/75)
 - [x] Parser logic and held attendance data preserved; both suites green
 
 ### Phase 1 — Design foundation (complete)
@@ -49,7 +49,7 @@ Rules:
 ### Phase 2 — Editorial chrome (complete, incl. approved refinements)
 
 - [x] `bg-background text-foreground` main; static **SSMonogram** replaces 3D logo in live UI
-- [x] Masthead metadata rail (`15 TEACHING WEEKS · 6 COURSES · EXAM LIMIT 75% · CUSHION 80%`)
+- [x] Masthead metadata rail (`15 TEACHING WEEKS · 6 COURSES · EXAM LIMIT 75%`)
 - [x] Flat 3-column summary readout band (replaces glass stat cards; ParticleNumber removed from use)
 - [x] Flattened course cards (later superseded by Phase 3 rows)
 - [x] **Cycling theme switch** — Light → Dim → Dark → Light; active swatch = filled + `border-2 border-foreground`; `aria-label` carries state
@@ -61,17 +61,17 @@ Rules:
 ### Phase 3 — Course interface baseline (complete 2026-10-31, committed in `90b0185`, superseded by 3R)
 
 - [x] Course cards → **Swiss-editorial instrument rows**: header strip (`<button aria-expanded aria-controls>`, multi-open inline expansion, instant toggle) + recessed "screen" area (square, hairline, restrained contrast)
-- [x] **`AttendanceScale.tsx`**: SVG `role="progressbar"`, 1 unit = 1%, 75/80 full-height ticks (foreground / status-safe), pixel-font threshold tags positioned to never collide; fill animated 0.65s with reduced-motion guard
+- [x] **`AttendanceScale.tsx`**: SVG `role="progressbar"`, 1 unit = 1%, 75% full-height tick (foreground), pixel-font threshold tag; fill animated 0.65s with reduced-motion guard
 - [x] **`PixelStatusSymbol.tsx`**: 7×7 crisp-edge pixel glyphs for safe (check), warning (exclamation), danger (✕), not_started (dash); `currentColor`; always paired with text label
 - [x] **Silkscreen** pixel font added (`next/font/google`, weights 400/700, ~3.5KB subset files) as `font-pixel` — used **only** for panel numerals (percent `text-4xl/5xl`, SAFE/LIMIT counters `text-2xl`, scale tags `text-sm`, `[+]/[-]` indicator)
 - [x] Typography correction: **Geist Mono loader removed**; `--font-mono` → system stack (code/kbd only); all ordinary labels/metadata → **Figtree**; summary-band display numbers → **Bricolage Grotesque**
-- [x] MorphingPopover retired from the dashboard: all popover content preserved as inline expanded details (theory/practical breakdown + planned, cushion/eligibility skip rows, danger guidance, not-started note); popover dismissal sentence removed; `morphing-popover.tsx` file kept on disk (Phase 5)
+- [x] MorphingPopover retired from the dashboard: all popover content preserved as inline expanded details (theory/practical breakdown + planned, eligibility skip rows, danger guidance, not-started note); popover dismissal sentence removed; `morphing-popover.tsx` file kept on disk (Phase 5)
 - [x] Validation: both suites pass; lint 4e/3w (Phase 5 files only); build green; output checks verified (no popover markup, aria-expanded/controls present, font-pixel + Silkscreen CSS present, progressbar label includes thresholds)
 
 ### Phase 3R — Responsive compact course grid & Swiss editorial refinement (complete 2026-10-31)
 
 - [x] Replaced single-column stacked accordion rows with responsive compact course-box grid: `grid-cols-1 items-start sm:grid-cols-2 lg:grid-cols-3`
-- [x] Simplified attendance allowance: removed safety cushion (80%) concept from user-facing UI; elevated single clear metric **"Skips left"** based on the 75% exam eligibility threshold (`analysis.hardSkips`)
+- [x] Simplified attendance allowance: 80% safety cushion dropped; elevated single clear metric **"Skips left"** based on the 75% exam eligibility threshold (`analysis.hardSkips`)
 - [x] Fixed grid expansion stretching: added `items-start` so expanding one card does not stretch adjacent cards in the same grid row
 - [x] Implemented smooth drawer open/close animation via `AnimatePresence` + height/opacity animation with `[0.16, 1, 0.3, 1]` cubic-bezier easing, fully guarded by `useReducedMotion`
 - [x] Preserved independent multi-open behavior and keyboard accessibility (`aria-expanded`, `aria-controls`)
@@ -118,7 +118,7 @@ Rules:
 - [x] Uploaded courses rendered through existing `analyzeCourse`/`getAttendanceSummary`; no duplicated math
 - [x] Parser warnings and incomplete rows shown; metadata summarized neutrally
 - [x] Replace and clear/reset flows; failed replacement keeps previous valid report
-- [x] `MOCK_COURSES` remains the no-report fallback
+- [x] No-report empty state replaces mock data; app has no mock data
 - [x] Uploaded courses kept in React state only (no localStorage/IndexedDB/backend/accounts)
 - [x] No PDF bytes or parsed attendance data sent to any external API
 - [x] Validation: attendance tests, parser tests, lint baseline unchanged, production build green; browser worker asset emitted
@@ -127,7 +127,7 @@ Rules:
 
 - [x] `npm test` plus `test:attendance`, `test:parser`, `test:privacy`, `typecheck` scripts
 - [x] Privacy regression suite (`src/lib/privacy.test.ts`) covering storage, logging, network/analytics, backend/DB absence, parser output shape, cleanup, env secrets and client-bundle leakage
-- [x] Synthetic non-personal PDF fixture generator so parser tests run in CI without committing real student reports
+- [x] Synthetic non-personal PDF fixture generator (`npm run generate:fixture`) so parser tests run without committing real student reports (real PDFs are never kept in the repo; `test-data/` is git-ignored)
 - [x] GitHub Actions CI: install, typecheck, lint, attendance/parser/privacy tests, production build, dependency audit
 - [x] CodeQL workflow and Dependabot (npm + GitHub Actions)
 - [x] Baseline security headers + CSP in `next.config.ts`; `poweredByHeader` disabled
@@ -137,7 +137,7 @@ Rules:
 - [x] ZAP evaluated; no staging environment, so no dynamic scan was run (documented instead)
 - [x] Docs updated (AGENTS/MEMORY/TASKS/rules)
 
-### Milestone 1 — NED connection foundation (complete 2026-11-08, uncommitted; live flow NOT verified)
+### Milestone 1 — NED connection foundation (complete 2026-11-08, uncommitted)
 
 - [x] Responsive NED connection panel matching the Swiss-editorial dashboard: student ID, password, CAPTCHA image area, CAPTCHA answer, refresh CAPTCHA, connect and disconnect
 - [x] Explicit states: idle, loading CAPTCHA, ready, connecting, connected, invalid request/credentials, CAPTCHA failure, portal unavailable, timeout, session expired, rate limit and integration unavailable
@@ -153,23 +153,34 @@ Rules:
 - [x] CI updated to run `npm run test:ned`
 - [x] Validation: typecheck, lint, attendance, parser, NED and privacy tests pass; production build green with 3 dynamic NED routes
 
-**Explicitly NOT done:** real NED login/CAPTCHA/report integration; endpoint/field discovery; live credential transmission; attendance retrieval from NED; shared/sticky session storage for serverless; hosting log-retention audit; staging/ZAP.
+### Milestone 2 — Real NED attendance retrieval (complete 2026-11-09, uncommitted; real-account smoke test pending)
 
-**Not done / intentionally deferred:** OWASP ZAP baseline scan (needs staging + authorization), GitHub native secret scanning/push protection (repository setting), hosting-provider log-retention audit (no host confirmed), live NED integration (endpoints unverified), E2E/component tests.
+- [x] Live undergraduate adapter for the verified public contract: `/captchaportal` CAPTCHA + `JSESSIONID`, `POST /index.jsp` login fields, `/undergrad/jsp_to_pdf_servlet?p=<studentId>_attendancecard`
+- [x] `POST /api/ned/session/attendance` returns the PDF in memory to the browser; no storage or logging
+- [x] PDF validation: content type, size limit and `%PDF-` magic; HTML/login pages never treated as reports
+- [x] Session expiry mapping (401/403, login redirect, unauthenticated HTML) clears the session; transient errors keep it for retry
+- [x] Auto-retrieve after connect, retry control, and manual PDF upload fallback; retrieved PDF feeds the existing browser parser
+- [x] Adapter/handler tests: endpoint contract, cookies, card ID, rejected login, HTML-as-PDF, connected-session requirement, expiry and invalid PDF
+- [x] Privacy route allowlist updated for the new route
+- [x] Validation: typecheck, lint, attendance, parser, NED, build and privacy suites pass
+- [ ] **Smoke-test the authenticated download with an authorized real student account** (blocked: no credentials provided)
+
+**Explicitly NOT done:** verified real-account end-to-end confirmation; shared/sticky session storage for serverless; hosting log-retention audit; staging/ZAP.
 
 ---
 
-## 2. Current state (verified 2026-11-08)
+## 2. Current state (verified 2026-11-09)
 
-- [x] UI supports local PDF upload; parser wired into dashboard; mock data remains fallback
-- [x] Uploaded report data exists in React state only (cleared on refresh)
-- [x] NED connection UI and fail-closed server boundary exist; **live NED authentication is not functional**
-- [x] No NED endpoints, field names or CAPTCHA URLs invented; unconfigured adapter never contacts the portal
+- [x] UI supports local PDF upload and NED retrieval; parser wired into dashboard; app has no mock data (empty state when no report loaded)
+- [x] Uploaded/retrieved report data exists in React state only (cleared on refresh)
+- [x] NED connection UI and real undergraduate attendance retrieval implemented; **authenticated download not yet smoke-tested with a real account**
+- [x] Portal contract verified against the public login/CAPTCHA/attendance endpoints; no endpoint, field or URL invented
+- [x] Retrieved PDF transits the server in memory only; never stored or logged
 - [x] No env secrets in use; no database, analytics or monitoring SDKs
 - [x] Ask SkipSafe = stub button only
 - [x] Tests run via `npm test` (attendance + parser + NED + privacy) and in GitHub Actions CI
 - [x] Lint baseline: **0 errors / 0 warnings** (retired files cleaned in Phase T; live code clean)
-- [x] Build: `next build` (Turbopack) green; 7 routes including 3 dynamic NED API routes; PDF.js worker emitted
+- [x] Build: `next build` (Turbopack) green; 7 routes including 4 dynamic NED API routes; PDF.js worker emitted
 - [x] Privacy suite passes, including post-build client-bundle scan
 - [x] Production `npm audit --omit=dev`: **0 findings** after moving `shadcn` to devDependencies (2026-11-08); full-tree dev-only findings documented separately; no critical/high; no `--force`
 - [x] Git: 5 commits (through `90b0185`); **all work since remains uncommitted/un-staged per instructions**
@@ -198,7 +209,7 @@ Approved direction so far (scope only — no implementation yet):
 
 - [ ] Entry copy exactly: "Schedule changed? Ask SkipSafe." (already present in masthead)
 - [ ] Five exact suggested questions (to be specified at Phase 4 planning)
-- [ ] Answers computed **only** from `attendance.ts` outputs / mock data — never invented numbers
+- [ ] Answers computed **only** from `attendance.ts` outputs of loaded report — never invented numbers (app has no mock data)
 - [ ] Honest placeholder state until real answers ship
 - [ ] Optional helper exports from `attendance.ts` (e.g., Q1/Q3 answer builders) — **separate protected-file approval required**
 - [ ] If LLM involved: server-side key, no `NEXT_PUBLIC_` secrets, no PDF exfiltration, retention policy approved (MEMORY §2 policy)
@@ -234,10 +245,10 @@ Approved direction so far (scope only — no implementation yet):
 
 - [x] Client-only upload control accepting PDF
 - [x] Configure pdfjs worker in the browser (bundled static worker asset)
-- [x] `parseAttendanceReport` → active dashboard state with `MOCK_COURSES` fallback
+- [x] `parseAttendanceReport` → active dashboard state (mock data removed; empty state when no report loaded)
 - [x] Surface `ParseWarning[]` and classified incomplete rows in UI without logging content
 - [x] Error states: wrong file type, empty file, oversized file, malformed PDF, unsupported layout
-- [x] Clear/reset to mock data action; failed replacement preserves previous report
+- [x] Clear/reset report action (resets to empty state; app has no mock data); failed replacement preserves previous report
 - [x] Metadata rows summarized neutrally, not shown as course errors
 
 ### Local persistence (deferred by Phase P2 requirement)
@@ -245,11 +256,13 @@ Approved direction so far (scope only — no implementation yet):
 - [ ] Choose storage (memory / localStorage / IndexedDB) for parsed courses — **intentionally React state only for now**
 - [ ] Schema versioning + clear-data control; confirm no server sync by default
 
-### University portal (deferred until explicit approval)
+### University portal (retrieval implemented 2026-11-09; smoke test pending)
 
-- [ ] Product decision: manual CAPTCHA + paste vs official API vs PDF-only
-- [ ] Privacy/threat-model note in MEMORY **before any code**
-- [ ] If built: no password storage/logging; manual CAPTCHA only
+- [x] Product decision: manual CAPTCHA + typed credentials, with manual PDF upload fallback
+- [x] Privacy/threat-model note in MEMORY before code
+- [x] No password storage/logging; manual CAPTCHA only
+- [x] Verified portal login/CAPTCHA/attendance contract; adapter retrieves the undergraduate attendance PDF through the session
+- [ ] Confirm end-to-end retrieval with an authorized real student account
 
 ### Nice-to-have (not started)
 
@@ -268,12 +281,13 @@ Approved direction so far (scope only — no implementation yet):
 - [x] `package.json` `test` script running attendance + parser + privacy suites; `typecheck` script
 - [x] CI (GitHub Actions): typecheck + lint + tests + build + dependency audit on every push/PR
 - [x] Privacy regression suite (source + client-bundle scan)
-- [x] Parser fixture strategy for CI: synthetic non-personal PDF generated at test time (real fixture remains gitignored)
+- [x] Parser fixture strategy: synthetic non-personal PDF generated via `npm run generate:fixture` (real attendance PDFs are never kept in the repo; `test-data/` is git-ignored)
 - [ ] Component/UI tests (no runner installed)
-- [ ] E2E browser test: upload sample PDF → dashboard shows 6 courses (manual verification recommended)
+- [ ] E2E browser test: upload synthetic fixture PDF → dashboard shows 6 courses (manual verification recommended)
 - [ ] Accessibility audit of instrument-panel dashboard (Phase 5)
 - [ ] Dynamic security scan (OWASP ZAP) — requires staging + authorization
-- [ ] Backend credential/session cleanup tests — requires the (not yet built) NED integration
+- [x] Backend credential/session cleanup tests: expiry, disconnect, invalid PDF and HTML-as-PDF cases covered with fake adapters
+- [ ] Real-account smoke test of NED retrieval (needs authorized credentials)
 
 ---
 
@@ -287,7 +301,7 @@ Approved direction so far (scope only — no implementation yet):
 - [ ] OWASP ZAP baseline scan once a staging URL exists (manual, unauthenticated, authorized; never against the NED portal or production). Draft trigger: `workflow_dispatch` with a required staging URL input, `zaproxy/action-baseline`, report uploaded as an artifact, `fail_action: false` initially.
 - [ ] Audit hosting-provider request logs, tracing and crash/error monitoring retention before any backend credential flow ships
 - [ ] Env var inventory: server-side secrets only; names without values
-- [ ] Confirm `test-data/` and real PDFs never deploy or commit
+- [ ] Confirm real attendance PDFs are never kept in the repo and `test-data/` is git-ignored
 - [ ] Error boundaries + empty states for production
 - [ ] README rewrite (Phase D)
 - [ ] Version/tag first public release; versioning decision per §2
@@ -330,7 +344,8 @@ Every phase starts with: inspect → plan → **explicit approval** → implemen
 | 2026-10-31 | Phase 3 (instrument rows, AttendanceScale, PixelStatusSymbol, Silkscreen `font-pixel`, Geist Mono removed, MorphingPopover retired from dashboard, Figtree typography correction) |
 | 2026-10-31 | Historical documentation audit: MEMORY.md + TASKS.md fully rewritten; `.agents/rules/skipsafe.md` updated; AGENTS.md untouched (Next.js-generated only) |
 | 2026-11-03 | Parser Phase P1.1: metadata/incomplete classification, exported `SkippedRow`/`classifyRow`, silent-discard fix, page-aware rows, metadata/ambiguous/malformed/integration tests |
-| 2026-11-03 | Phase P2: browser PDF upload → parser → attendance → dashboard; bundled worker; warnings/incomplete display; replace/clear; mock fallback; React state only |
+| 2026-11-03 | Phase P2: browser PDF upload → parser → attendance → dashboard; bundled worker; warnings/incomplete display; replace/clear; React state only (mock fallback later superseded) |
 | 2026-11-03 | Docs updated for P1/P1.1/P2; privacy and current-state sections synced |
 | 2026-11-07 | Phase T: npm test/typecheck scripts, privacy regression suite, synthetic CI fixture, GitHub Actions CI, CodeQL, Dependabot, security headers, lint cleanup, audit triage, ZAP evaluated (not run) |
 | 2026-11-08 | Dependency audit remediation: `shadcn` → devDependencies (no breaking change), production audit 0; full-tree dev-only findings remain documented; full test/build/privacy gate green |
+| 2026-11-09 | Milestone 2: real NED undergraduate attendance-PDF retrieval via authenticated session; new attendance route; PDF validation; auto-retrieve/retry; adapter/handler tests; docs synced (real-account smoke test pending) |

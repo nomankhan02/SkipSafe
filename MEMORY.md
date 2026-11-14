@@ -6,7 +6,7 @@ Source of truth for a new AI session or model.
 **`.agents/rules/skipsafe.md` is an always-on project rule file — keep it; this file supplements it, it does not replace it.**
 **`TASKS.md` is the operational roadmap — keep MEMORY.md and TASKS.md in agreement.**
 
-> Documentation status: rewritten 2026-10-31 after a historical audit of git history and the baseline commit `90b0185`; updated 2026-11-03 for Parser Phase P1/P1.1 and the Phase P2 PDF upload integration; updated 2026-11-07 for the automated testing, privacy-regression, CI and security-scanning foundation (Phase T); updated 2026-11-08 for the `shadcn` devDependency move (production audit now clean); updated 2026-11-08 for Milestone 1 (NED connection boundary and UI, live portal flow still unverified). Claims below are verified against code, builds and test runs unless explicitly marked unverified.
+> Documentation status: rewritten 2026-10-31 after a historical audit of git history and the baseline commit `90b0185`; updated 2026-11-03 for Parser Phase P1/P1.1 and the Phase P2 PDF upload integration; updated 2026-11-07 for the automated testing, privacy-regression, CI and security-scanning foundation (Phase T); updated 2026-11-08 for the `shadcn` devDependency move (production audit now clean); updated 2026-11-08 for Milestone 1 (NED connection boundary and UI), and updated 2026-11-09 for Milestone 2 (real NED undergraduate attendance-PDF retrieval through the authenticated session; real-account smoke test still pending). Claims below are verified against code, builds and test runs unless explicitly marked unverified.
 
 ---
 
@@ -27,29 +27,30 @@ Source of truth for a new AI session or model.
 ### Built and verified in code
 
 - Per-course attendance percentage matching the portal (credit-weighted theory + practical).
-- Status vocabulary: `not_started` | `safe` | `warning` | `danger`.
-- **Safe skips** (stay ≥80%) and **hard skips** (stay ≥75%) assuming all remaining classes are attended.
+- Status vocabulary: `not_started` | `safe` | `warning` | `danger`. In code: `not_started` (no classes held), `danger` (current < 75% or projected final < 75%), `warning` (`cur >= 75 && hardSkips <= 2`), `safe` (otherwise).
+- **Skips left**: `hardSkips` (classes a student can skip while maintaining ≥75% attendance) assuming all remaining classes are attended. The 80% safety cushion was dropped completely; 75% is the sole eligibility threshold (`safeSkips` and `SAFE_LIMIT` removed from engine).
 - Semester summary: courses at risk, lowest course, safest course.
 - PDF parser for NED "Course-Wise Attendance Analysis" reports (`parseAttendanceReport`) — flexible headers, dynamic column detection, multiple credit formats, missing-value handling, metadata/incomplete row classification, skipped-row accounting, validation, printed-% comparison and multi-page support. Built, tested and wired into the dashboard.
-- Dashboard rendering uploaded `Course[]` (or `MOCK_COURSES` fallback) through `analyzeCourse`/`getAttendanceSummary` (no math in UI). PDF upload and parsing happen entirely in the browser; parsed courses live in React state only.
+- Dashboard rendering uploaded or NED-retrieved `Course[]` through `analyzeCourse`/`getAttendanceSummary` (no math in UI). The app has no mock data; the dashboard renders only a report retrieved from NED or uploaded by the user (with an empty state when none is loaded). PDF upload and parsing happen entirely in the browser; parsed courses live in React state only. Numbers in `attendance.test.ts` and `courseCardDisplay.test.ts` are synthetic unit-test fixtures only.
 - Swiss-editorial dashboard: masthead + SS monogram, summary readout band, responsive compact course-box grid (1 col mobile, 2 sm, 3 lg) with Skips Left as primary collapsed readout and inline expandable attendance details, `AttendanceScale` SVG (75% limit tick), geometric status symbols (safe check, limit reached diamond, danger cross, not started dash), Light/Dim/Dark themes with cycling switch and pre-hydration theme script.
 - Ask SkipSafe header button exists; handler is still a stub (`onClick={() => {}}`).
 
 ### Attendance tracking workflow (intended end-state)
 
-1. Student obtains attendance data (today: PDF upload or mock fallback; portal still deferred).
+1. Student obtains attendance data (today: NED portal download via `/connect` or manual PDF upload; the app has no mock data).
 2. Parser/`Course[]` feeds `analyzeAll` / `getAttendanceSummary`.
-3. Dashboard shows status, %, safe/hard skips, parser warnings and incomplete rows.
+3. Dashboard shows status, %, skips left, parser warnings and incomplete rows.
 4. Student uses skip guidance before missing class.
 
-### University portal & manual CAPTCHA (Milestone 1 boundary — live flow NOT verified)
+### University portal & manual CAPTCHA (implemented; real-account smoke test pending)
 
-- **Milestone 1 implemented:** a responsive NED connection panel on the dashboard, typed client/server contracts, three server route handlers and an isolated temporary-session design.
-- **Live authentication is NOT functional.** No NED endpoint, form field name, CAPTCHA URL or attendance-report URL has been verified. The adapter is fail-closed (`integration_unavailable`) and never contacts NED. Do not claim the portal flow works.
+- **Implemented:** a responsive NED connection panel on the dashboard, typed client/server contracts, four server route handlers, an isolated temporary-session design, and real undergraduate attendance-PDF retrieval through the authenticated portal session. After a successful connect the PDF is fetched automatically, returned to the browser in memory, and fed into the existing client-side parser; a retry control covers transient failures and manual upload remains the fallback.
+- **Verified public contract (2026-11-09):** `POST https://pl.neduet.edu.pk/index.jsp` with `portal_id`, `pwd_portal`, `vericode`, `usertype=Undergraduate`, `hd_stat5=5`, `login`; CAPTCHA at `/captchaportal` sets an HttpOnly/Secure `JSESSIONID`; `/undergrad/jsp_to_pdf_servlet` requires that session and redirects to login without it; the attendance link uses `p=<studentId>_attendancecard`.
+- **Live caveat:** the authenticated PDF download still needs a real-account smoke test after any portal change. Failure is explicit; login HTML or non-PDF data is never treated as a report. The manual PDF upload remains the fallback.
 - **CAPTCHA stays manual/human.** No bypass, OCR, automation or third-party CAPTCHA service.
 - **Credentials are transient:** sent over HTTPS to this app's server only for a connection attempt, never written to a session record, storage, logs or response. JavaScript cannot guarantee memory zeroisation; the design minimises lifetime and drops references after the attempt.
 - **Sessions:** opaque 256-bit IDs, server-memory only, 5-minute TTL, per-session isolation, `HttpOnly`/`SameSite=Strict`/path-scoped cookie, Secure on HTTPS. No session ID is returned in JSON or a URL. In-memory storage is process-local and **not reliable on multi-instance serverless hosting** (see §9).
-- **Remaining before real integration:** verified login/CAPTCHA/report endpoints and field names, portal cookie/flow behaviour, attendance report format, error/rate-limit semantics, logout behaviour, terms/permission review, hosting log-retention audit, and a reviewed shared session store if deployment is multi-instance.
+- **Before live deployment:** terms/permission review, hosting log-retention audit, and a reviewed shared session store if deployment is multi-instance.
 
 ### PDF attendance report processing (built, tested)
 
@@ -58,7 +59,7 @@ Source of truth for a new AI session or model.
 - Supports multiple credit formats, explicit/defaulted/missing count values, present ≤ held validation, multi-page reports and printed-% comparison.
 - Classifies high-confidence metadata (student info, academic year, dates, department headings, table/page furniture, summaries, notes, footer) separately from `incomplete` course rows. Ambiguous rows are returned, never silently discarded.
 - **Never logs PDF bytes or extracted text.** Returns `Course[]`, `warnings[]`, classified `skippedRows[]` and `printedPcts`.
-- Sample: `test-data/sample-attendance.pdf` (gitignored — never commit real student PDFs).
+- Synthetic fixture: `test-data/sample-attendance.pdf` (git-ignored, produced via `npm run generate:fixture`). Real attendance PDFs are never kept in the repo.
 
 ### Chatbot "Ask SkipSafe" (planned, not built — Phase 4)
 
@@ -131,21 +132,21 @@ src/
     ned/                  # NED boundary: shared types/validation/state + server-only
                           # session store, cookies, adapter contract, handlers, tests
     pdfWorker.ts          # Browser PDF.js worker asset setup
-    mockCourses.ts        # dashboard fallback fixtures (6 courses)
+    mockCourses.ts        # retired test fixtures; not used by the live app
     utils.ts, try.ts      # try.ts is an unimported developer scratch script
-test-data/sample-attendance.pdf  # gitignored (CI generates a synthetic fixture)
+test-data/sample-attendance.pdf  # git-ignored synthetic fixture (generated via npm run generate:fixture); real PDFs are never kept in repo
 ```
 
 ### Key component responsibilities
 
-- **`attendance.ts`:** `currentPercent`, `skipsLeft`, `analyzeCourse`, `analyzeAll`, `getAttendanceSummary`; constants `WEEKS_PER_SEMESTER`, `HARD_LIMIT`, `SAFE_LIMIT`; types `Course`, `Status`, `CourseResult`, `SummaryReport`.
+- **`attendance.ts`:** `currentPercent`, `skipsLeft`, `analyzeCourse`, `analyzeAll`, `getAttendanceSummary`; constants `WEEKS_PER_SEMESTER`, `HARD_LIMIT`, `WARNING_THRESHOLD`; types `Course`, `Status`, `CourseResult`, `SummaryReport`.
 - **`parseReport.ts`:** `parseAttendanceReport(pdfData) → { courses, warnings, skippedRows, printedPcts }`; `classifyRow` exposes pure metadata/incomplete classification for tests.
 - **`pdfWorker.ts`:** configures `GlobalWorkerOptions.workerSrc` from the bundled PDF.js worker asset in the browser.
 - **`ReportUpload.tsx`:** PDF picker/replace/clear UI; parsing is initiated by the dashboard, all local.
 - **`NedConnection.tsx`:** controlled student-ID/password/CAPTCHA form; manual CAPTCHA only; clears all sensitive fields after every connect attempt; same-origin fetches only; never touches browser storage or server-only modules.
-- **`lib/ned/`:** shared `types`/`validation`/`connectionState` plus server-only `sessionStore`, `cookies`, `portalAdapter`, `handlers` and `runtime`. The adapter is fail-closed until the real NED flow is verified.
+- **`lib/ned/`:** shared `types`/`validation`/`connectionState` plus server-only `sessionStore`, `cookies`, `portalAdapter`, `handlers` and `runtime`. The adapter implements the verified NED undergraduate challenge/login/attendance request flow; an `unconfiguredNedAdapter` remains available as an explicit fail-closed fallback.
 - **`ParseNotices.tsx`:** renders warnings and `incomplete` rows; metadata is summarized neutrally, never as an error.
-- **`dashboard/page.tsx`:** presentation only; holds uploaded report state with `MOCK_COURSES` fallback; maps active courses through `analyzeCourse`; theme store (useSyncExternalStore + MutationObserver); never reimplements math.
+- **`dashboard/page.tsx`:** presentation only; holds real report state in React state (empty state when no report is loaded; no mock data); maps active courses through `analyzeCourse`; theme store (useSyncExternalStore + MutationObserver); never reimplements math.
 - **`AttendanceScale.tsx`:** `role="progressbar"` SVG, 1 unit = 1% (`viewBox 0 0 100 6`), tick at HARD_LIMIT, reduced-motion-guarded fill.
 - **`StatusSymbol.tsx`:** restrained geometric stroke marks, always paired with a visible text label.
 
@@ -153,12 +154,12 @@ test-data/sample-attendance.pdf  # gitignored (CI generates a synthetic fixture)
 
 1. `/` redirects to `/dashboard`.
 2. `layout.tsx` runs a validated localStorage `themeInit` script pre-hydration; `<html data-theme="light" suppressHydrationWarning>`.
-3. Dashboard shows the NED connection panel and an upload control, and starts with `MOCK_COURSES` as fallback.
-4. The NED panel requests a CAPTCHA from `/api/ned/session/challenge`, submits ID/password/CAPTCHA to `/api/ned/session/connect`, and disconnects via `/api/ned/session`. With the current unverified adapter these calls fail closed with `integration_unavailable` and no session is created.
-5. Uploading a PDF reads it locally, configures the PDF.js worker, calls `parseAttendanceReport`, stores the resulting `Course[]` in React state and renders warnings/incomplete rows.
-6. Active courses (uploaded or mock) map through `analyzeCourse` + `getAttendanceSummary`; the grid, summary band and expanded details update.
-7. Replacing a report only updates state on success; failed uploads keep the previous report. Clear resets to mock data.
-8. No PDF bytes, attendance data or parsed reports are sent to a server or persisted (React state only). NED credentials are sent only to this app's server for a connection attempt and are never stored in a session record.
+3. Dashboard shows the empty state when no report is loaded (with connect and upload actions), rendering course cards only after a real report is retrieved from NED or uploaded by the user.
+4. The NED panel requests a CAPTCHA from `/api/ned/session/challenge`, submits ID/password/CAPTCHA to `/api/ned/session/connect`, retrieves the attendance PDF from `/api/ned/session/attendance` after connecting, and disconnects via `/api/ned/session`. The server uses the portal's `JSESSIONID` for the PDF request and returns the bytes in memory; expired sessions surface `session_expired` and clear the session.
+5. Uploading a PDF (or receiving the retrieved NED PDF) reads it locally, configures the PDF.js worker, calls `parseAttendanceReport`, stores the resulting `Course[]` in React state and renders warnings/incomplete rows.
+6. Active courses from the real loaded report map through `analyzeCourse` + `getAttendanceSummary`; the grid, summary band and expanded details update.
+7. Replacing a report only updates state on success; failed uploads keep the previous report. Clear resets report state to null (empty state).
+8. No PDF bytes, attendance data or parsed reports are written to storage or any database. A NED-retrieved PDF transits this app's server **in memory only** for the authenticated portal request, is returned to the browser, and is never logged or persisted. NED credentials are sent only to this app's server for a connection attempt and are never stored in a session record.
 
 ---
 
@@ -166,8 +167,8 @@ test-data/sample-attendance.pdf  # gitignored (CI generates a synthetic fixture)
 
 | Rule | Value / behavior | Where |
 |------|------------------|-------|
-| Exam eligibility (hard) | **75%** per course | `HARD_LIMIT` |
-| Safe cushion (historical) | 80% (superseded in UI — app now focuses directly on 75% eligibility) | `SAFE_LIMIT` in engine (kept for backwards compatibility) |
+| Exam eligibility | **75%** per course (sole product threshold; 80% cushion dropped) | `HARD_LIMIT` |
+| Warning rule (code) | `cur >= 75 && hardSkips <= WARNING_THRESHOLD (2)` | `WARNING_THRESHOLD` in engine |
 | **Semester length** | **15 teaching weeks** (`WEEKS_PER_SEMESTER = 15`); set by approved Phase C change (was 16 at initial build — superseded) | `attendance.ts`, `attendance.test.ts` |
 | Calendar model | 16 calendar weeks minus 1 midterm week → 15 teaching weeks; UI copy states this | product narrative + dashboard copy |
 | Default theory planned | `thCredits * WEEKS_PER_SEMESTER` (×15) unless `thPlanned` override | `projectedFinal` / `skipsLeft` |
@@ -190,11 +191,11 @@ test-data/sample-attendance.pdf  # gitignored (CI generates a synthetic fixture)
 | Asset | Protection rule |
 |-------|-----------------|
 | `src/lib/attendance.ts` | Pure module; no UI/network imports; changes only with explicit approval + test updates |
-| `src/lib/attendance.test.ts` | Expected values derive from a real portal report (12-OCT-26); do not loosen asserts |
+| `src/lib/attendance.test.ts` | Numbers are synthetic unit-test fixtures only; do not loosen asserts |
 | `src/lib/parseReport.ts` | Keep privacy (no logging of PDF); position-based parsing is intentional |
-| `src/lib/parseReport.test.ts` | Uses sample PDF; keep byte privacy |
+| `src/lib/parseReport.test.ts` | Uses synthetic PDF fixture generated by npm run generate:fixture; keep byte privacy |
 | `Course` type, `Status` vocabulary, `getAttendanceSummary` | Stable; UI depends on them |
-| `mockCourses.ts` | Fixture (CT-159, CT-268, EA-244, EF-201, MT-221, MT-331) — replaceable by real data |
+| `mockCourses.ts` | Retired fixture file — not imported or used by live app code |
 
 **Regression gate after any change:**
 
@@ -202,14 +203,14 @@ test-data/sample-attendance.pdf  # gitignored (CI generates a synthetic fixture)
 npm run typecheck
 npm run lint
 npm run test:attendance
-npm run test:parser        # private fixture; CI generates a synthetic one
+npm run test:parser        # fixture generated via npm run generate:fixture
 npm run test:ned           # NED boundary/session/privacy-adjacent unit tests
 npm run build
 npm run test:privacy       # after build, so the client-bundle scan runs
 npm audit --omit=dev
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same gate on every push and pull request. `npm test` runs the four test suites only. The PDF parser fixture is gitignored; `scripts/generate-synthetic-attendance-pdf.mjs` creates a non-personal fixture in CI and never overwrites an existing file. The protected test files remain unchanged.
+CI (`.github/workflows/ci.yml`) runs the same gate on every push and pull request. `npm test` runs the test suites. Real attendance PDFs are never kept in the repo; `test-data/` is git-ignored and holds only a synthetic fixture produced by `npm run generate:fixture` (`scripts/generate-synthetic-attendance-pdf.mjs` creates a non-personal fixture in CI and never overwrites an existing file). The protected test files remain unchanged.
 
 ---
 
@@ -223,14 +224,14 @@ The dashboard **has been redesigned** to the target Swiss-editorial/instrument-p
 - **Light foundation**, hairline borders, sharp geometry (`--radius: 0.125rem`), flat surfaces.
 - **Forbidden:** glassmorphism, neon, gradients, glossy effects, heavy shadows, generic SaaS card grids, bulky rounded corners, rotating 3D, particles, WebGL.
 - Information design like a precision instrument: dense but legible, clear rules and dividers, restrained accents used only for meaning.
-- Course panels deliberately evoke a **minimalist retro pixel-game screen** — square geometry, thin borders, restrained contrast — arranged in a responsive grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`). Safe Skips serves as the primary collapsed readout (`text-[40px] sm:text-[44px]` weight 700 Silkscreen), with attendance percentage displayed upon expansion (`text-[28px] sm:text-[32px]` weight 700 Silkscreen).
-- **Pixel status symbols**: 11×11 pixel glyphs nested within double-lined square border frames, visually distinguishing safe cushion remaining, cushion exhausted (warning, safe skips = 0), hard limit reached while eligible (warning, hard skips = 0), danger / ineligible, and not started.
+- Course panels deliberately evoke a **minimalist retro pixel-game screen** — square geometry, thin borders, restrained contrast — arranged in a responsive grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`). Skips left serves as the primary collapsed readout (`text-[40px] sm:text-[44px]` weight 700 Silkscreen), with attendance percentage displayed upon expansion (`text-[28px] sm:text-[32px]` weight 700 Silkscreen).
+- **Pixel status symbols (historical)**: Restrained marks distinguishing safe (skips remaining), warning / limit reached (0 skips left), danger / ineligible (<75% or unrecoverable), and not started.
 
 ### 6b. Typography (four roles — Phase 3 correction, supersedes the old mono-for-labels rule)
 
 | Role | Font | Usage rules |
 |------|------|-------------|
-| Headings & display numbers | **Bricolage Grotesque** (`font-bricolage`) | h1–h6 via base layer; summary-band display numbers; course panel collapsed safe skips (`text-[40px] sm:text-[44px]` tabular-nums); expanded attendance percentage (`text-[28px] sm:text-[32px]` tabular-nums); scale tags |
+| Headings & display numbers | **Bricolage Grotesque** (`font-bricolage`) | h1–h6 via base layer; summary-band display numbers; course panel collapsed skips left (`text-[40px] sm:text-[44px]` tabular-nums); expanded attendance percentage (`text-[28px] sm:text-[32px]` tabular-nums); scale tags |
 | Body + all ordinary text | **Figtree** (`font-sans`) | labels, descriptions, metadata, status text, panel subcopy — **never use monospace for ordinary small text** |
 | `code`/`kbd`/toggle marks | system mono (`--font-mono`) | `[-]`/`[+]` controls, code, kbd |
 
@@ -278,12 +279,13 @@ Approved phased work (Phases S–3 committed in `90b0185`; Phase 3R uncommitted 
 8. **Phase 3R (responsive compact course grid & Swiss editorial refinement, 2026-10-31)** — redesigned course interface from single-column stacked accordion rows to a responsive compact grid: `grid-cols-1 items-start sm:grid-cols-2 lg:grid-cols-3` (`items-start` prevents neighboring boxes from stretching when one card opens). Simplified attendance allowance: removed safety cushion concept entirely from the UI. Display one clear metric: **"Skips left"** (calculated directly via `analysis.hardSkips` for $\ge 75\%$). Elevated Skips Left to headline collapsed readout (`text-[40px] sm:text-[44px]` Bricolage Grotesque, tabular-nums, bold); course names heightened in visual priority (`text-lg font-bold font-bricolage`); smooth drawer animation (`AnimatePresence` height and opacity with `[0.16, 1, 0.3, 1]` cubic-bezier easing, respecting `useReducedMotion`). Restrained, theme-aware geometric stroke marks in `StatusSymbol.tsx` (check, limit diamond, danger cross, not started dash).
 9. **Parser Phase P1 (2026-11, uncommitted)** — flexible header tokens, dynamic column anchors with validated defaults, multiple credit formats, explicit/defaulted/missing value handling, row validation, printed-percentage comparison, skipped-row tracking and multi-page support. New verified PDF fixture replaced the old one; the old regression test remains structure-only because the old PDF file itself was not preserved.
 10. **Parser Phase P1.1 (2026-11-03, uncommitted)** — robust row classification: high-confidence metadata (student info, academic year, dates, department headings, table/page furniture, summaries, notes, footer) is classified separately from `incomplete` course rows; metadata rows are never presented as course errors; the old silent-discard branch now accounts for every potential course row; page-aware row keys fix cross-page merging; `SkippedRow` and `classifyRow` are exported for tests.
-11. **Phase P2 (PDF upload integration, 2026-11-03, uncommitted)** — browser-only upload flow: validated file picker, bundled PDF.js worker, `parseAttendanceReport → Course[] → attendance.ts → dashboard`, uploaded-vs-mock source indicator, parser warnings/incomplete-row display, replace/clear flows, previous-report retention on failure. Parsed courses are held in React state only; no localStorage/IndexedDB/backend.
+11. **Phase P2 (PDF upload integration, 2026-11-03, uncommitted)** — browser-only upload flow: validated file picker, bundled PDF.js worker, `parseAttendanceReport → Course[] → attendance.ts → dashboard`, parser warnings/incomplete-row display, replace/clear flows, previous-report retention on failure. Parsed courses are held in React state only; no localStorage/IndexedDB/backend; mock data fallback was later removed.
 12. **Phase T (automated testing & security foundation, 2026-11-07, uncommitted)** — `npm test`/`test:*`/`typecheck` scripts; privacy regression suite; synthetic PDF fixture generator for CI; GitHub Actions CI (typecheck, lint, attendance/parser/privacy tests, production build, dependency audit), CodeQL, Dependabot; baseline security headers/CSP in `next.config.ts`; retired-file lint cleanup (0 errors/warnings); `npm audit fix` (non-breaking) reduced production findings to 6 low/moderate, all in the shadcn CLI tree. ZAP was evaluated but **not run** (no staging environment).
 13. **Dependency audit remediation (2026-11-08, uncommitted)** — `shadcn` moved from `dependencies` to `devDependencies` (same resolved version `4.23.0`, lockfile synced with `npm install --package-lock-only`; no `--force`, no breaking upgrade). Verified no runtime JS import: `src/app/globals.css` imports `shadcn/tailwind.css` at build time and `components.json` drives the CLI. This moved `deepmerge@4.3.1` (low) and `minimatch@10.2.6` (moderate) under `dev`, making **`npm audit --omit=dev` clean (0 findings)**. Full-tree audit still shows 13 dev-only findings (2 low, 11 moderate) via `shadcn`/`eslint-config-next`/`typescript-eslint`; these are build/lint tooling, not shipped runtime code. Production build output CSS kept the same hashed filename and size (`324t2cu46ur1y.css`, 60,503 bytes).
-14. **Milestone 1 — NED connection foundation (2026-11-08, uncommitted)** — responsive NED panel on the dashboard (student ID, password, manual CAPTCHA, refresh, connect, disconnect); typed shared contracts; fail-closed `NedPortalAdapter`; three reviewed route handlers (`POST challenge`, `POST connect`, `DELETE session`); per-session in-memory store with 256-bit opaque IDs, 5-minute TTL, isolation and no credential fields; `HttpOnly`/`SameSite=Strict`/path-scoped/Secure cookie; origin/content-type/size/JSON hardening; 10-second operation timeout; field validation and explicit loading/invalid-credentials/CAPTCHA/portal/timeout/success states; `test:ned` suite; privacy tests extended with an exact route/fetch allowlist and server-only bundle checks. **No live NED endpoint was invented or contacted; authentication remains non-functional by design.**
+14. **Milestone 1 — NED connection foundation (2026-11-08, uncommitted)** — responsive NED panel on the dashboard (student ID, password, manual CAPTCHA, refresh, connect, disconnect); typed shared contracts; fail-closed `NedPortalAdapter`; three reviewed route handlers (`POST challenge`, `POST connect`, `DELETE session`); per-session in-memory store with 256-bit opaque IDs, 5-minute TTL, isolation and no credential fields; `HttpOnly`/`SameSite=Strict`/path-scoped/Secure cookie; origin/content-type/size/JSON hardening; 10-second operation timeout; field validation and explicit loading/invalid-credentials/CAPTCHA/portal/timeout/success states; `test:ned` suite; privacy tests extended with an exact route/fetch allowlist and server-only bundle checks. No live NED endpoint was invented or contacted; authentication remained non-functional by design.
+15. **Milestone 2 — real NED attendance retrieval (2026-11-09, uncommitted)** — replaced the fail-closed default adapter with a live undergraduate adapter for the verified public contract (`/captchaportal` CAPTCHA + `JSESSIONID`, `POST /index.jsp` login fields, `/undergrad/jsp_to_pdf_servlet?p=<studentId>_attendancecard`); added `POST /api/ned/session/attendance`; validates content type, size and `%PDF-` magic so HTML/login pages are never treated as a report; maps expiry/401/403/login redirect to `session_expired` and clears the session; auto-retrieves the PDF after connect and parses it in the browser; retry button and manual upload fallback; adapter/handler tests cover endpoints, cookies, card ID, rejection, HTML-as-PDF, expiry and invalid PDF. **The authenticated download has not been smoke-tested against a real student account.**
 
-**Superseded decisions (kept for history, do not restore):** 16-week constant; safety cushion (80%) in UI / separate safe skips readout (superseded in Phase 3R simplification); dark-only slate/glassmorphism UI; 3D rotating logo; particle canvases/ParticleNumber in live UI; Geist Mono for ordinary labels; three-button segmented theme control; card-grid course layout (pre-redesign); full-width single-column stacked rows (Phase 3); Silkscreen / pixel font for numeric readouts (superseded in Phase 3R refinement); double-framed arcade pixel glyphs (superseded in Phase 3R refinement); unconstrained grid stretching across row items (superseded by `items-start`); instant accordion jump (superseded by smooth drawer animation); popover-based details; `v1.2` version chip; `.dark` class toggling.
+**Superseded decisions (kept for history, do not restore):** 16-week constant; safety cushion (80%) in UI / separate safe skips readout (superseded in Phase 3R simplification); mock data fallback / MOCK_COURSES (superseded; app has no mock data and renders only real reports retrieved from NED or uploaded by the user); dark-only slate/glassmorphism UI; 3D rotating logo; particle canvases/ParticleNumber in live UI; Geist Mono for ordinary labels; three-button segmented theme control; card-grid course layout (pre-redesign); full-width single-column stacked rows (Phase 3); Silkscreen / pixel font for numeric readouts (superseded in Phase 3R refinement); double-framed arcade pixel glyphs (superseded in Phase 3R refinement); unconstrained grid stretching across row items (superseded by `items-start`); instant accordion jump (superseded by smooth drawer animation); popover-based details; `v1.2` version chip; `.dark` class toggling.
 
 ---
 
@@ -299,24 +301,25 @@ Approved phased work (Phases S–3 committed in `90b0185`; Phase 3R uncommitted 
 ## 9. Privacy and security
 
 1. **No password storage or logging** — ever (portal or otherwise).
-2. **Attendance data stays local in the browser.** PDF uploads are parsed client-side and parsed courses live only in React state; no localStorage/IndexedDB persistence, backend DB or external attendance API is used. NED credentials are sent to this app's server only for a connection attempt and are never written to a session record, response, log or storage.
+2. **Attendance data stays local in the browser.** PDF uploads are parsed client-side and parsed courses live only in React state; no localStorage/IndexedDB persistence, backend DB or external attendance API is used. A NED-retrieved PDF transits this app's server in memory for the authenticated portal request and is returned to the browser; it is never logged, written to storage or kept after the response. NED credentials are sent to this app's server only for a connection attempt and are never written to a session record, response, log or storage.
 3. **NED server session state is temporary and process-local.** It holds only opaque adapter state (never credentials/CAPTCHA answers), uses 256-bit random IDs with a 5-minute TTL, and is isolated per session.
 4. **API keys remain server-side** (route handlers / server actions only).
 5. **No `NEXT_PUBLIC_` exposure of secrets.**
-6. **Never commit** `.env*`, real student PDFs, or personal data (`.gitignore` covers `.env*` and `test-data/`).
+6. **Never commit** `.env*`, real student PDFs, or personal data. Real attendance PDFs are never kept in the repo; `test-data/` is git-ignored and holds only a synthetic fixture produced by `npm run generate:fixture`.
 7. **Never log** request bodies, credentials, CAPTCHA answers, cookies, tokens, PDF binaries, extracted PDF text or attendance data.
 8. CAPTCHA stays manual — no bypass, OCR, automation or third-party CAPTCHA service.
 9. Chatbot (when built) must not send student data to third parties without explicit design approval.
 
-### Verified vs unverified privacy claims (2026-11-08, Milestone 1)
+### Verified vs unverified privacy claims (2026-11-08, Milestone 1; retrieval added 2026-11-09)
 
 Verified by source inspection, `src/lib/ned/ned.test.ts` and `src/lib/privacy.test.ts`:
 
 - No `sessionStorage`, IndexedDB, client cookies or database code exists; `localStorage` is used only for the `theme` key. The NED session cookie is server-set `HttpOnly`/`SameSite=Strict`/path-scoped and not readable by frontend JavaScript.
 - No runtime `console.*`/stdout logging exists; the parser has no logging.
 - The only client `fetch` calls are relative same-origin `/api/ned/...` requests in `NedConnection.tsx`; no external URLs, XHR, WebSocket, beacon, analytics SDKs or third-party scripts exist.
-- Exactly three reviewed route handlers exist (`session`, `session/challenge`, `session/connect`) with no server actions, database drivers or file writes.
-- Session records contain only `createdAt`, `expiresAt`, `phase` and opaque `portalState`; tests assert credentials/CAPTCHA answers are absent.
+- Exactly four reviewed route handlers exist (`session`, `session/challenge`, `session/connect`, `session/attendance`) with no server actions, database drivers or file writes.
+- Session records contain only `createdAt`, `expiresAt`, `phase` and opaque `portalState`; `portalState` may hold the portal `JSESSIONID` cookie and the attendance-card identifier, but tests assert credentials/CAPTCHA answers are absent.
+- The attendance handler validates the portal response as a real PDF (`%PDF-` magic, size limits) and returns explicit failure for HTML/login pages; the retrieved bytes are passed through in memory and not logged or written to disk.
 - Failed/expired/disconnected sessions are deleted and cookies cleared; challenge refresh replaces the previous session; deleting one session does not affect another.
 - `ParseResult` exposes only `courses`, `warnings`, `skippedRows`, `printedPcts` — never raw PDF bytes or extracted text.
 - The dashboard keeps parsed courses in React state; clear resets it; the file input is reset after selection.
@@ -325,7 +328,8 @@ Verified by source inspection, `src/lib/ned/ned.test.ts` and `src/lib/privacy.te
 
 Partially verified / not verifiable in this repo:
 
-- **Live NED integration is not implemented or verified.** All NED calls fail closed with `integration_unavailable`; no real credential ever reaches NED from this code.
+- **Live NED retrieval is implemented but not smoke-tested with a real student account.** The request contract is verified against the public portal and an independent working implementation, and all failure paths are exercised with fake adapters; the authenticated PDF body itself has not been confirmed end-to-end. If the portal changes, retrieval fails explicitly rather than fabricating data.
+- Student credentials do reach this app's server during a connection attempt (and the portal session cookie is held in memory for the temporary session); they are never persisted or logged.
 - The in-memory session store is **not safe for multi-instance/serverless deployments** (instances do not share memory, and cold starts drop sessions). A reviewed temporary store and sticky/single-instance deployment decision are required before shipping live auth.
 - Hosting-provider logs, CDN request tracing, platform crash reporting and error-monitoring retention are **not** covered by application code and have not been audited. No hosting provider is confirmed. HTTPS is required in deployment; request metadata and potential provider retention must be documented before live credentials are accepted.
 - GitHub secret scanning/push protection is a repository setting, not code; it must be enabled in GitHub settings.
@@ -368,10 +372,10 @@ Partially verified / not verifiable in this repo:
 
 ---
 
-## 12. Current state (2026-11-08)
+## 12. Current state (2026-11-09)
 
-- **Code:** Phases S, C, 1, 2 (+refinements), 3 (committed in `90b0185`), Phase 3R, Parser Phase P1/P1.1, Phase P2, Phase T (testing/security foundation), the dependency-audit remediation and Milestone 1 (NED connection boundary/UI) complete and validated. PDF upload is wired to the dashboard; parsed data is React-state only. **Live NED authentication is not implemented or verified** — the adapter fails closed, no NED endpoint is invented and the UI says so. Chatbot is still a stub.
-- **Gates:** attendance, parser, NED-boundary and privacy tests pass; TypeScript clean; ESLint clean (0 errors/warnings); production build green (7 routes incl. 3 NED API routes, PDF.js worker emitted); **production dependency audit clean (`npm audit --omit=dev` = 0)** after moving `shadcn` to devDependencies. The full tree still reports 13 dev-only findings (2 low, 11 moderate) in build/lint tooling (`shadcn` CLI, `eslint-config-next`, `typescript-eslint`); no critical/high and no `--force`.
+- **Code:** Phases S, C, 1, 2 (+refinements), 3 (committed in `90b0185`), Phase 3R, Parser Phase P1/P1.1, Phase P2, Phase T (testing/security foundation), the dependency-audit remediation, Milestone 1 (NED connection boundary/UI) and Milestone 2 (real NED attendance retrieval) complete and validated. PDF upload and NED-retrieved PDFs are wired to the dashboard; parsed data is React-state only. The app has no mock data; the dashboard renders only real parsed reports from NED or manual upload (with an empty state when none is loaded). Numbers in `attendance.test.ts` and `courseCardDisplay.test.ts` are synthetic unit-test fixtures only. Real attendance PDFs are never kept in the repo; `test-data/` is git-ignored and holds only a synthetic fixture produced by `npm run generate:fixture`. **The authenticated NED download is implemented against the verified portal contract but has not been smoke-tested with a real student account**; failures are explicit and manual upload remains the fallback. Chatbot is still a stub.
+- **Gates:** attendance, parser, NED-boundary and privacy tests pass; TypeScript clean; ESLint clean (0 errors/warnings); production build green (7 routes incl. 4 NED API routes, PDF.js worker emitted); **production dependency audit clean (`npm audit --omit=dev` = 0)** after moving `shadcn` to devDependencies. The full tree still reports 13 dev-only findings (2 low, 11 moderate) in build/lint tooling (`shadcn` CLI, `eslint-config-next`, `typescript-eslint`); no critical/high and no `--force`.
 - **CI/security:** GitHub Actions CI, CodeQL and Dependabot configured; secret scanning still requires repository settings; ZAP not run (no staging). NED routes use in-memory sessions; serverless/multi-instance hosting needs a reviewed shared store before live auth.
-- **Git:** 5 commits through `90b0185`; all work since (including Phase 3R, parser/upload, Phase T and Milestone 1) remains uncommitted and un-staged per instructions.
-- **Roadmap:** verify the real NED portal flow and hosting constraints → Phase 4 (Ask SkipSafe) → Phase 5 (a11y/responsive/motion, retirements/deletions, dep-removal approvals) → Phase D (docs sync incl. README). Details and risks live in `TASKS.md`.
+- **Git:** 5 commits through `90b0185`; all work since (including Phase 3R, parser/upload, Phase T, Milestone 1 and Milestone 2) remains uncommitted and un-staged per instructions.
+- **Roadmap:** smoke-test the real NED flow with an authorized account and confirm hosting constraints → Phase 4 (Ask SkipSafe) → Phase 5 (a11y/responsive/motion, retirements/deletions, dep-removal approvals) → Phase D (docs sync incl. README). Details and risks live in `TASKS.md`.

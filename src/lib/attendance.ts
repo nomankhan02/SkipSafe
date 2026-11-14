@@ -2,7 +2,7 @@
 
 export const WEEKS_PER_SEMESTER = 15;
 export const HARD_LIMIT = 75; // real exam-eligibility rule (per course)
-export const SAFE_LIMIT = 80; // our cushion, shown as "stay above 80%"
+export const WARNING_THRESHOLD = 2; // warning when current >= 75 and hardSkips <= 2
 
 export type Course = {
   code: string;
@@ -24,7 +24,6 @@ export type CourseResult = {
   code: string;
   currentPercent: number | null; // matches the portal's number; null if not started
   status: Status;
-  safeSkips: number; // skips left while still finishing >= 80%
   hardSkips: number; // skips left while still finishing >= 75%
 };
 
@@ -68,15 +67,14 @@ export function skipsLeft(c: Course, minPercent: number): number {
 export function analyzeCourse(c: Course): CourseResult {
   const cur = currentPercent(c);
   const hardSkips = skipsLeft(c, HARD_LIMIT);
-  const safeSkips = skipsLeft(c, SAFE_LIMIT);
 
   let status: Status;
   if (cur === null) status = "not_started";
   else if (cur < HARD_LIMIT || projectedFinal(c, 0) < HARD_LIMIT) status = "danger";
-  else if (cur < SAFE_LIMIT || safeSkips === 0) status = "warning";
+  else if (hardSkips <= WARNING_THRESHOLD) status = "warning";
   else status = "safe";
 
-  return { code: c.code, currentPercent: cur, status, safeSkips, hardSkips };
+  return { code: c.code, currentPercent: cur, status, hardSkips };
 }
 
 export function analyzeAll(courses: Course[]): CourseResult[] {
