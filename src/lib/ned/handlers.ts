@@ -61,6 +61,29 @@ function jsonResponse(
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+function isPdfBytes(value: unknown): value is Uint8Array {
+  if (!(value instanceof Uint8Array) || value.byteLength < 5) return false;
+  return (
+    value[0] === 0x25 &&
+    value[1] === 0x50 &&
+    value[2] === 0x44 &&
+    value[3] === 0x46 &&
+    value[4] === 0x2d
+  );
+}
+
+function pdfResponse(fileName: string, pdf: Uint8Array): Response {
+  const headers = new Headers(NO_STORE_HEADERS);
+  headers.set("Content-Type", "application/pdf");
+  headers.set(
+    "Content-Disposition",
+    `inline; filename="${fileName.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+  );
+  headers.set("X-Content-Type-Options", "nosniff");
+  const body = new Uint8Array(pdf).slice().buffer;
+  return new Response(body, { status: 200, headers });
+}
+
 function errorResponse(
   code: NedErrorCode,
   status = STATUS_BY_CODE[code],
@@ -305,6 +328,67 @@ export function createNedHandlers({
     );
   }
 
+  async function fetchAttendance(request: Request): Promise<Response> {
+    if (!hasSameOrigin(request)) {
+      return errorResponse("invalid_request", 403);
+    }
+
+    const sessionId = readNedSessionId(request);
+    if (!sessionId) {
+      return errorResponse(
+        "session_expired",
+        401,
+        undefined,
+        serializeClearedNedSessionCookie(isSecureRequest(request)),
+      );
+    }
+
+    const session = store.get(sessionId);
+    if (!session || session.phase !== "connected") {
+      store.delete(sessionId);
+      return errorResponse(
+        "session_expired",
+        401,
+        undefined,
+        serializeClearedNedSessionCookie(isSecureRequest(request)),
+      );
+    }
+
+    const timed = await withTimeout(
+      () => adapter.fetchAttendanceReport(session.portalState),
+      operationTimeoutMs,
+    );
+
+    if (!timed.ok) {
+      // Keep the session for a transient portal failure so the user can retry;
+      // an expired/invalid portal session is cleared below.
+      if (timed.code === "timeout") {
+        return errorResponse("timeout");
+      }
+      return errorResponse("portal_unavailable");
+    }
+
+    const result = timed.value;
+    if (!result.ok) {
+      const clearSession = result.code === "session_expired";
+      if (clearSession) store.delete(sessionId);
+      return errorResponse(
+        result.code,
+        STATUS_BY_CODE[result.code],
+        undefined,
+        clearSession
+          ? serializeClearedNedSessionCookie(isSecureRequest(request))
+          : undefined,
+      );
+    }
+
+    if (!isPdfBytes(result.pdf)) {
+      return errorResponse("attendance_retrieval_failed");
+    }
+
+    return pdfResponse(result.fileName, result.pdf);
+  }
+
   async function disconnect(request: Request): Promise<Response> {
     if (!hasSameOrigin(request)) {
       return errorResponse("invalid_request", 403);
@@ -320,5 +404,5 @@ export function createNedHandlers({
     );
   }
 
-  return { createChallenge, connect, disconnect };
+  return { createChallenge, connect, fetchAttendance, disconnect };
 }

@@ -21,7 +21,7 @@ export const NED_ERROR_MESSAGES: Record<NedErrorCode, string> = {
   integration_unavailable:
     "NED integration is not configured or verified yet. Nothing was sent to NED.",
   invalid_credentials:
-    "NED rejected these credentials. Nothing was stored. Check and try again.",
+    "NED rejected the student ID, password or CAPTCHA answer. Nothing was stored. Check and try again.",
   captcha_failed:
     "NED rejected the CAPTCHA answer. Load a new CAPTCHA and try again.",
   portal_unavailable:
@@ -37,7 +37,7 @@ export const NED_ERROR_MESSAGES: Record<NedErrorCode, string> = {
 export const initialNedUiState: NedUiState = {
   status: "idle",
   message:
-    "Load a CAPTCHA to start. Live NED authentication is not enabled yet.",
+    "Load a CAPTCHA to connect. The CAPTCHA is always solved manually.",
   captchaImage: null,
   expiresAt: null,
   fields: [],
@@ -93,7 +93,7 @@ export function nedConnectedState(expiresAt: number): NedUiState {
   return {
     status: "connected",
     message:
-      "Connection verified. Attendance retrieval will be enabled after the full verified NED flow is implemented.",
+      "Connected to NED. The attendance report is retrieved through the authenticated session.",
     captchaImage: null,
     expiresAt,
     fields: [],

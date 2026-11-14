@@ -1,5 +1,5 @@
 import { createNedHandlers } from "./handlers";
-import { unconfiguredNedAdapter } from "./portalAdapter";
+import { nedPortalAdapter } from "./portalAdapter";
 import { createNedSessionStore } from "./sessionStore";
 
 /**
@@ -13,5 +13,5 @@ const store = createNedSessionStore();
 
 export const nedHandlers = createNedHandlers({
   store,
-  adapter: unconfiguredNedAdapter,
+  adapter: nedPortalAdapter,
 });

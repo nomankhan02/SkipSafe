@@ -10,6 +10,7 @@ import {
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   KeyRound,
   Loader2,
   LogOut,
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  NED_ERROR_MESSAGES,
   initialNedUiState,
   nedConnectedState,
   nedConnectingState,
@@ -40,6 +42,18 @@ import type {
 } from "@/lib/ned/types";
 
 type FieldErrors = Partial<Record<NedFieldName, string>>;
+
+type RetrievalState = {
+  status: "idle" | "retrieving" | "success" | "error";
+  message: string;
+};
+
+type NedConnectionProps = {
+  onPdfRetrieved: (
+    pdf: ArrayBuffer,
+    fileName: string,
+  ) => Promise<void> | void;
+};
 
 function isNedErrorCode(value: unknown): value is NedErrorCode {
   return (
@@ -108,12 +122,16 @@ async function requestConnect(body: unknown): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
-export function NedConnection() {
+export function NedConnection({ onPdfRetrieved }: NedConnectionProps) {
   const [state, setState] = useState<NedUiState>(initialNedUiState);
   const [studentId, setStudentId] = useState("");
   const [password, setPassword] = useState("");
   const [captchaAnswer, setCaptchaAnswer] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [retrieval, setRetrieval] = useState<RetrievalState>({
+    status: "idle",
+    message: "",
+  });
   const sessionActiveRef = useRef(false);
 
   const busy =
@@ -176,6 +194,74 @@ export function NedConnection() {
     }
   }, [busy, connected]);
 
+  const retrieveAttendance = useCallback(async () => {
+    setRetrieval({
+      status: "retrieving",
+      message: "Retrieving the attendance report from NED…",
+    });
+
+    try {
+      const response = await fetch("/api/ned/session/attendance", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        referrerPolicy: "no-referrer",
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const code = readErrorCode(data);
+
+        if (code === "session_expired") {
+          sessionActiveRef.current = false;
+          setState(nedErrorState(code));
+          setRetrieval({ status: "idle", message: "" });
+          return;
+        }
+
+        setRetrieval({
+          status: "error",
+          message: NED_ERROR_MESSAGES[code],
+        });
+        return;
+      }
+
+      const contentType = (response.headers.get("content-type") ?? "")
+        .toLowerCase();
+      if (!contentType.includes("application/pdf")) {
+        setRetrieval({
+          status: "error",
+          message:
+            "NED did not return a PDF attendance report. Try again or upload the PDF manually.",
+        });
+        return;
+      }
+
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength === 0) {
+        setRetrieval({
+          status: "error",
+          message:
+            "NED returned an empty attendance report. Try again or upload the PDF manually.",
+        });
+        return;
+      }
+
+      await onPdfRetrieved(buffer, "NED attendance report");
+      setRetrieval({
+        status: "success",
+        message: "Attendance report loaded from NED.",
+      });
+    } catch {
+      setRetrieval({
+        status: "error",
+        message:
+          "Could not retrieve the attendance report. Try again or upload the PDF manually.",
+      });
+    }
+  }, [onPdfRetrieved]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || connected) return;
@@ -215,6 +301,8 @@ export function NedConnection() {
       ) {
         sessionActiveRef.current = true;
         setState(nedConnectedState(data.expiresAt));
+        setRetrieval({ status: "idle", message: "" });
+        void retrieveAttendance();
       } else {
         const fields = readFields(data);
         sessionActiveRef.current = false;
@@ -241,6 +329,7 @@ export function NedConnection() {
     sessionActiveRef.current = false;
     setState(initialNedUiState);
     setFieldErrors({});
+    setRetrieval({ status: "idle", message: "" });
     clearSecretFields();
 
     try {
@@ -282,11 +371,12 @@ export function NedConnection() {
         <div className="flex items-start gap-2 border border-border bg-muted/40 p-2.5">
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Live NED authentication is not enabled yet: the real portal flow has
-            not been verified. The CAPTCHA is always solved manually. When the
-            verified flow ships, credentials will be sent only to this
-            application&apos;s server for the connection attempt and will never
-            be stored or logged.
+            Connect with your own NED student ID, password and a manually typed
+            CAPTCHA. Credentials are sent only to this application&apos;s server
+            for the connection attempt and are never stored or logged. The
+            retrieved attendance PDF is parsed in your browser and is not
+            stored. If the portal is unavailable or changes, upload the PDF
+            manually below.
           </p>
         </div>
 
@@ -299,16 +389,47 @@ export function NedConnection() {
               <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
               <p className="leading-relaxed">{state.message}</p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={disconnect}
-              className="h-8 rounded-none border-border bg-transparent px-2.5 text-xs font-normal text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
+
+            <p
+              aria-live="polite"
+              className={`text-[11px] leading-relaxed ${
+                retrieval.status === "error"
+                  ? "text-status-danger"
+                  : "text-muted-foreground"
+              }`}
             >
-              <LogOut className="size-3.5" />
-              Disconnect and clear session
-            </Button>
+              {retrieval.message}
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void retrieveAttendance()}
+                disabled={retrieval.status === "retrieving"}
+                className="h-8 rounded-none px-2.5 text-xs"
+              >
+                {retrieval.status === "retrieving" ? (
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
+                {retrieval.status === "success"
+                  ? "Retrieve again"
+                  : "Retrieve attendance report"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={disconnect}
+                disabled={retrieval.status === "retrieving"}
+                className="h-8 rounded-none border-border bg-transparent px-2.5 text-xs font-normal text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
+              >
+                <LogOut className="size-3.5" />
+                Disconnect and clear session
+              </Button>
+            </div>
           </div>
         ) : (
           <form
