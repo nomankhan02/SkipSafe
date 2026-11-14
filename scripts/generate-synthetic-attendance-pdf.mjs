@@ -46,7 +46,7 @@ const COL = {
 
 /** Metadata rows placed above the table header. */
 const metadata = [
-  [780, "Student Name: NOMAN KHURSHEED"],
+  [780, "Student Name: TEST STUDENT"],
   [768, "2026-2027"],
   [756, "Department of Computer Science & Information Technology"],
   [744, "17-AUG-26"],

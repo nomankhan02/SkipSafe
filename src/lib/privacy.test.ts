@@ -20,6 +20,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { getReport, setReport, clearReport } from "./reportStore";
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, "src");
@@ -141,14 +142,39 @@ function formatMatch(match: { file: string; line: number; text: string }): strin
     );
   }
 
-  const consoleCalls = matchesInRuntime(
+  // `src/lib/ned/portalAdapter.ts` is allowed a single opt-in `console.error`
+  // inside `debugHop`, strictly gated by `process.env.NED_DEBUG === "1"`.
+  const allConsoleCalls = matchesInRuntime(
     /\bconsole\.(log|info|warn|error|debug|trace|dir|table)\s*\(/,
     loggingFiles,
+  );
+  const adapterConsoleCalls = allConsoleCalls.filter(
+    (match) => match.file === "src/lib/ned/portalAdapter.ts",
+  );
+  const consoleCalls = allConsoleCalls.filter(
+    (match) => match.file !== "src/lib/ned/portalAdapter.ts",
   );
   assert.deepEqual(
     consoleCalls.map(formatMatch),
     [],
     "runtime code must not write to the console (passwords, PDFs, tokens or reports could leak)",
+  );
+  assert.equal(
+    adapterConsoleCalls.length,
+    1,
+    "portalAdapter.ts may only contain the single console.error call inside debugHop",
+  );
+  assert.match(
+    adapterConsoleCalls[0].text,
+    /^console\.error\(/,
+    "portalAdapter.ts debugHop must use console.error",
+  );
+
+  const adapterSource = sourceText(join(SRC, "lib", "ned", "portalAdapter.ts"));
+  assert.match(
+    adapterSource,
+    /export async function debugHop[\s\S]*?if\s*\(\s*process\.env\.NED_DEBUG\s*!==\s*["']1["']\s*\)\s*\{\s*return;\s*\}/,
+    "portal adapter diagnostics must be strictly opt-in via NED_DEBUG === '1'",
   );
 
   const streamWrites = matchesInRuntime(/\bprocess\.(stdout|stderr)\.write\s*\(/, loggingFiles);
@@ -259,6 +285,7 @@ function formatMatch(match: { file: string; line: number; text: string }): strin
     "src/app/api/ned/session/route.ts",
     "src/app/api/ned/session/challenge/route.ts",
     "src/app/api/ned/session/connect/route.ts",
+    "src/app/api/ned/session/attendance/route.ts",
   ]);
   assert.deepEqual(
     routeFiles.map(relativePath).sort(),
@@ -429,8 +456,20 @@ function formatMatch(match: { file: string; line: number; text: string }): strin
   );
   assert.match(
     dashboard,
-    /const \[report, setReport\] = useState<LoadedReport \| null>\(null\)/,
-    "attendance data must live in React state, not persisted storage",
+    /const \[report, setReport\] = useReport\(\)/,
+    "attendance data must live in browser-only report state, not persisted storage",
+  );
+
+  const reportStore = sourceText(join(SRC, "lib", "reportStore.ts"));
+  assert.match(
+    reportStore,
+    /export function clearReport\(\): void \{[\s\S]*?currentReport = null/,
+    "clear action must drop the parsed report from browser memory",
+  );
+  assert.doesNotMatch(
+    reportStore,
+    /\b(localStorage|sessionStorage|indexedDB|document\.cookie)\b/,
+    "report store must not persist attendance data in browser storage",
   );
 
   const uploadControl = sourceText(
@@ -441,6 +480,70 @@ function formatMatch(match: { file: string; line: number; text: string }): strin
     /event\.target\.value = ""/,
     "file input must be reset so the browser does not keep the selected PDF in the control",
   );
+
+  const homePage = sourceText(join(SRC, "app", "page.tsx"));
+  assert.match(
+    homePage,
+    /["']use client["']/,
+    "home page must be a client component for browser-only redirect logic",
+  );
+  assert.match(
+    homePage,
+    /router\.replace\(["']\/dashboard["']\)/,
+    "home page must redirect to /dashboard when report is loaded",
+  );
+  assert.match(
+    homePage,
+    /router\.replace\(["']\/connect["']\)/,
+    "home page must redirect to /connect when no report is loaded",
+  );
+
+  const connectPage = sourceText(join(SRC, "app", "connect", "page.tsx"));
+  assert.match(
+    connectPage,
+    /<NedConnection\b/,
+    "connect page must render NedConnection",
+  );
+  assert.match(
+    connectPage,
+    /<ReportUpload\b/,
+    "connect page must render ReportUpload fallback",
+  );
+  assert.doesNotMatch(
+    connectPage,
+    /MOCK_COURSES/,
+    "connect page must not contain sample or mock courses",
+  );
+
+  assert.doesNotMatch(
+    dashboard,
+    /MOCK_COURSES/,
+    "dashboard page must not contain sample or mock courses in the render path",
+  );
+  assert.doesNotMatch(
+    dashboard,
+    /<NedConnection\b/,
+    "dashboard page must not render NedConnection directly; connection is separated into /connect",
+  );
+  assert.match(
+    dashboard,
+    /Connect to NED/,
+    "dashboard page empty state must offer a Connect to NED button",
+  );
+
+  // In-memory report store lifecycle: transient, browser memory only
+  assert.equal(getReport(), null, "initial report state must be null");
+  const testReport = {
+    fileName: "test.pdf",
+    courses: [],
+    warnings: [],
+    skippedRows: [],
+    printedPcts: {},
+  };
+  setReport(testReport);
+  assert.equal(getReport(), testReport, "setReport must update in-memory report");
+  clearReport();
+  assert.equal(getReport(), null, "clearReport must reset in-memory report to null");
 
   console.log(
     "ok  cleanup: NED state is transient, fields clear after every attempt, sessions are TTL-scoped, report stays in React state",
@@ -459,7 +562,13 @@ function formatMatch(match: { file: string; line: number; text: string }): strin
     "NEXT_PUBLIC_ variables are embedded in the client bundle and must not hold secrets",
   );
 
-  const envUsage = matchesInRuntime(/\bprocess\.env\b/);
+  const envUsage = matchesInRuntime(/\bprocess\.env\b/).filter(
+    (match) =>
+      !(
+        match.file === "src/lib/ned/portalAdapter.ts" &&
+        match.text.includes("NED_DEBUG")
+      ),
+  );
   assert.deepEqual(
     envUsage.map(formatMatch),
     [],
@@ -474,20 +583,19 @@ function formatMatch(match: { file: string; line: number; text: string }): strin
 // ─────────────────────────────────────────────────────────────────────────────
 
 {
-  if (!existsSync(NEXT_STATIC)) {
+  const bundleFiles = existsSync(NEXT_STATIC)
+    ? walk(NEXT_STATIC).filter((file) => /\.(js|css)$/.test(file))
+    : [];
+  if (bundleFiles.length === 0) {
     console.log(
-      "skip client bundle scan: .next/static not found (run `npm run build` before `npm run test:privacy` for full coverage)",
+      "skip client bundle scan: compiled JS/CSS assets not found (run `npm run build` before `npm run test:privacy` for full coverage)",
     );
   } else {
-    const bundleFiles = walk(NEXT_STATIC).filter((file) =>
-      /\.(js|css)$/.test(file),
-    );
-    assert.ok(bundleFiles.length > 0, "client bundle should contain JS/CSS assets");
     const bundle = bundleFiles.map(sourceText).join("\n");
 
     // Fixture identifiers must never be compiled into the client bundle.
     const fixtureMarkers = [
-      "NOMAN KHURSHEED",
+      "TEST STUDENT",
       "2026-2027",
       "Computer Science & Information Technology",
     ];

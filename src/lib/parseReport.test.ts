@@ -440,7 +440,7 @@ async function runNewFixtureTest(): Promise<void> {
   }
 
   const knownMetadata = [
-    "NOMAN KHURSHEED",
+    "TEST STUDENT",
     "2026-2027",
     "Computer Science & Information Technology",
     "17-AUG-26",
