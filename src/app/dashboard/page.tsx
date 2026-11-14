@@ -1,8 +1,8 @@
 "use client";
 
-import { useSyncExternalStore, useState } from "react";
+import { useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { MOCK_COURSES } from "@/lib/mockCourses";
 import {
   analyzeCourse,
   getAttendanceSummary,
@@ -10,35 +10,27 @@ import {
   HARD_LIMIT,
   type Status,
 } from "@/lib/attendance";
-import type { ParseResult } from "@/lib/parseReport";
+import {
+  getCourseCardDisplay,
+  sortCoursesByRisk,
+} from "@/lib/courseCardDisplay";
 import { Button } from "@/components/ui/button";
 import { SSMonogram } from "@/components/SSMonogram";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { AttendanceScale } from "@/components/AttendanceScale";
 import { ParseNotices } from "@/components/ParseNotices";
 import { ReportUpload } from "@/components/ReportUpload";
-import { NedConnection } from "@/components/NedConnection";
 import {
   StatusSymbol,
   getStatusSymbolState,
   type StatusSymbolState,
 } from "@/components/StatusSymbol";
-import { Info } from "lucide-react";
-
-type LoadedReport = ParseResult & { fileName: string };
-
-function describeUploadError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "";
-  if (/layout not recognised/i.test(message)) {
-    return "This PDF does not look like a supported attendance report. The previous report, if any, is still shown.";
-  }
-  if (/password/i.test(message)) {
-    return "This PDF is password-protected. Remove the password and try again.";
-  }
-  if (/invalid pdf|pdf structure|unexpected end|bad xref|format error/i.test(message)) {
-    return "This file could not be read as a valid PDF. The previous report, if any, is still shown.";
-  }
-  return "Could not parse this report. Check the file and try again. The previous report, if any, is still shown.";
-}
+import { Info, KeyRound } from "lucide-react";
+import {
+  useReport,
+  parseAndStoreReport,
+  describeUploadError,
+} from "@/lib/reportStore";
 
 const STATUS_CONFIG: Record<
   Status,
@@ -77,60 +69,12 @@ const SYMBOL_SUBTITLE: Record<StatusSymbolState, string> = {
   not_started: "No Classes Held",
 };
 
-type Theme = "light" | "dim" | "dark";
-
-const THEMES: Theme[] = ["light", "dim", "dark"];
-
-const THEME_SWATCHES: Record<Theme, string> = {
-  light: "#faf9f5",
-  dim: "#383a41",
-  dark: "#141519",
-};
-
-const isTheme = (value: string | null): value is Theme =>
-  value === "light" || value === "dim" || value === "dark";
-
-const themeStore = {
-  subscribe(onStoreChange: () => void): () => void {
-    const root = document.documentElement;
-    const stored = localStorage.getItem("theme");
-    if (isTheme(stored) && root.getAttribute("data-theme") !== stored) {
-      root.setAttribute("data-theme", stored);
-    }
-    const observer = new MutationObserver(onStoreChange);
-    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
-  },
-  getSnapshot(): Theme {
-    const value = document.documentElement.getAttribute("data-theme");
-    return isTheme(value) ? value : "light";
-  },
-  getServerSnapshot(): Theme {
-    return "light";
-  },
-};
-
 export default function DashboardPage() {
   const shouldReduceMotion = useReducedMotion();
-  const theme = useSyncExternalStore(
-    themeStore.subscribe,
-    themeStore.getSnapshot,
-    themeStore.getServerSnapshot
-  );
-
-  const applyTheme = (next: Theme) => {
-    document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem("theme", next);
-  };
-
-  const cycleTheme = () => {
-    applyTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]);
-  };
-
+  const [report, setReport] = useReport();
   const [expandedCodes, setExpandedCodes] = useState<ReadonlySet<string>>(
     () => new Set()
   );
-  const [report, setReport] = useState<LoadedReport | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -146,14 +90,11 @@ export default function DashboardPage() {
     });
   };
 
-  const activeCourses = report?.courses ?? MOCK_COURSES;
-
-  const analyzedCourses = activeCourses.map((course) => ({
-    course,
-    analysis: analyzeCourse(course),
-  }));
-
-  const summary = getAttendanceSummary(activeCourses);
+  const handleClearReport = () => {
+    setReport(null);
+    setUploadError(null);
+    setExpandedCodes(new Set());
+  };
 
   const handleFileSelected = async (file: File) => {
     if (isParsing) return;
@@ -177,31 +118,26 @@ export default function DashboardPage() {
 
     setIsParsing(true);
     try {
-      const [{ configurePdfWorker }, { parseAttendanceReport }] =
-        await Promise.all([
-          import("@/lib/pdfWorker"),
-          import("@/lib/parseReport"),
-        ]);
-
-      await configurePdfWorker();
       const buffer = await file.arrayBuffer();
-      const result = await parseAttendanceReport(buffer);
-
-      setReport({ ...result, fileName: file.name });
+      await parseAndStoreReport(buffer, file.name);
       setExpandedCodes(new Set());
     } catch (error) {
-      // Keep the previously loaded valid report on a failed replacement.
       setUploadError(describeUploadError(error));
     } finally {
       setIsParsing(false);
     }
   };
 
-  const handleClearReport = () => {
-    setReport(null);
-    setUploadError(null);
-    setExpandedCodes(new Set());
-  };
+  const analyzedCourses = report
+    ? sortCoursesByRisk(
+        report.courses.map((course) => ({
+          course,
+          analysis: analyzeCourse(course),
+        }))
+      )
+    : [];
+
+  const summary = report ? getAttendanceSummary(report.courses) : null;
 
   // Stagger animation variants for page load
   const containerVariants = {
@@ -245,8 +181,12 @@ export default function DashboardPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                   <span>{WEEKS_PER_SEMESTER} Teaching Weeks</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{analyzedCourses.length} Courses</span>
+                  {report && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span>{analyzedCourses.length} Courses</span>
+                    </>
+                  )}
                   <span aria-hidden="true">·</span>
                   <span>Exam Limit {HARD_LIMIT}%</span>
                 </div>
@@ -254,29 +194,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-              <button
-                type="button"
-                onClick={cycleTheme}
-                aria-label={`Theme: ${theme}. Activate to change theme`}
-                className="flex items-center gap-2 border border-border px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-              >
-                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                  {theme}
-                </span>
-                <span className="flex items-center gap-1" aria-hidden="true">
-                  {THEMES.map((t) => (
-                    <span
-                      key={t}
-                      className={`block size-2.5 transition-colors ${
-                        theme === t
-                          ? "border-2 border-foreground"
-                          : "border border-border"
-                      }`}
-                      style={{ backgroundColor: THEME_SWATCHES[t] }}
-                    />
-                  ))}
-                </span>
-              </button>
+              <ThemeToggle />
 
               <Button
                 variant="outline"
@@ -290,420 +208,497 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        <NedConnection />
+        {!report ? (
+          /* Empty state when no report is loaded */
+          <section aria-labelledby="empty-heading" className="space-y-4">
+            <div className="border border-border bg-card p-6 sm:p-8 space-y-5">
+              <div className="space-y-1.5">
+                <h2
+                  id="empty-heading"
+                  className="font-bricolage text-lg font-bold tracking-tight text-foreground sm:text-xl"
+                >
+                  No Attendance Report Loaded
+                </h2>
+                <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm max-w-xl">
+                  Connect your NED student portal account to retrieve your
+                  attendance, or upload your Course-Wise Attendance Analysis PDF
+                  manually below. SkipSafe computes your skip allowance and exam
+                  eligibility entirely in your browser.
+                </p>
+              </div>
 
-        {/* Attendance report source */}
-        <section aria-labelledby="upload-heading" className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2
-              id="upload-heading"
-              className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
-            >
-              Attendance Data
-            </h2>
-            <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {report ? "Uploaded report" : "Sample data"}
-            </span>
-          </div>
+              <div className="pt-1 flex flex-wrap items-center gap-3">
+                <Link
+                  href="/connect"
+                  className="inline-flex h-9 items-center justify-center bg-primary px-4 text-xs font-medium text-primary-foreground shadow-none hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <KeyRound className="size-3.5 mr-1.5" />
+                  Connect to NED
+                </Link>
+              </div>
 
-          <div className="space-y-3 border border-border bg-card p-3.5 sm:p-4">
-            <ReportUpload
-              fileName={report?.fileName ?? null}
-              isParsing={isParsing}
-              onFileSelected={handleFileSelected}
-              onClear={handleClearReport}
+              <div className="border-t border-border/60 pt-4 space-y-3">
+                <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-semibold">
+                  Or upload PDF manually
+                </div>
+                <ReportUpload
+                  fileName={null}
+                  isParsing={isParsing}
+                  onFileSelected={handleFileSelected}
+                  onClear={handleClearReport}
+                />
+                {uploadError && (
+                  <p
+                    role="alert"
+                    className="border border-status-danger/40 bg-status-danger/10 p-2 text-xs text-status-danger text-left"
+                  >
+                    {uploadError}
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+        ) : (
+          <>
+            {/* Attendance report source */}
+            <section aria-labelledby="upload-heading" className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2
+                  id="upload-heading"
+                  className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
+                >
+                  Attendance Data
+                </h2>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href="/connect"
+                    className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    Connect account
+                  </Link>
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                    Uploaded report
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3 border border-border bg-card p-3.5 sm:p-4">
+                <ReportUpload
+                  fileName={report.fileName}
+                  isParsing={isParsing}
+                  onFileSelected={handleFileSelected}
+                  onClear={handleClearReport}
+                />
+
+                {uploadError && (
+                  <p
+                    role="alert"
+                    className="border border-status-danger/40 bg-status-danger/10 p-2 text-xs text-status-danger"
+                  >
+                    {uploadError}
+                  </p>
+                )}
+
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Showing {report.courses.length}{" "}
+                  {report.courses.length === 1 ? "course" : "courses"} from{" "}
+                  {report.fileName}. Attendance uses the official NED calculation
+                  rules.
+                </p>
+              </div>
+            </section>
+
+            <ParseNotices
+              warnings={report.warnings}
+              skippedRows={report.skippedRows}
             />
 
-            {uploadError && (
-              <p
-                role="alert"
-                className="border border-status-danger/40 bg-status-danger/10 p-2 text-xs text-status-danger"
-              >
-                {uploadError}
-              </p>
-            )}
-
-            {report && (
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Showing {report.courses.length}{" "}
-                {report.courses.length === 1 ? "course" : "courses"} from{" "}
-                {report.fileName}. Attendance uses the same calculation rules as
-                the sample data.
-              </p>
-            )}
-          </div>
-        </section>
-
-        {report && (
-          <ParseNotices
-            warnings={report.warnings}
-            skippedRows={report.skippedRows}
-          />
-        )}
-
-        {/* Semester Overview — editorial readout band */}
-        <section aria-labelledby="summary-heading" className="space-y-3">
-          <h2
-            id="summary-heading"
-            className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
-          >
-            Semester Overview
-          </h2>
-          <div className="grid grid-cols-1 border border-border bg-card sm:grid-cols-3">
-            <div className="border-b border-border p-4 sm:border-b-0 sm:border-r sm:p-5">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Courses at risk
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span
-                  className={`font-bricolage text-3xl font-bold tracking-tight tabular-nums ${
-                    summary.coursesAtRiskCount > 0
-                      ? "text-status-danger"
-                      : "text-foreground"
-                  }`}
+            {/* Semester Overview — editorial readout band */}
+            {summary && (
+              <section aria-labelledby="summary-heading" className="space-y-3">
+                <h2
+                  id="summary-heading"
+                  className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
                 >
-                  {summary.coursesAtRiskCount}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {summary.coursesAtRiskCount === 1 ? "course" : "courses"}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {summary.coursesAtRiskCount > 0
-                  ? `Below ${HARD_LIMIT}% exam eligibility threshold`
-                  : `All courses maintain ≥${HARD_LIMIT}% eligibility`}
-              </p>
-            </div>
-
-            <div className="border-b border-border p-4 sm:border-b-0 sm:border-r sm:p-5">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Lowest attendance
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="font-bricolage text-lg font-bold uppercase tracking-wider text-foreground">
-                  {summary.lowestCourse ? summary.lowestCourse.code : "—"}
-                </span>
-                {summary.lowestCourse?.currentPercent !== null &&
-                  summary.lowestCourse?.currentPercent !== undefined && (
-                    <span
-                      className={`font-bricolage text-2xl font-bold tracking-tight tabular-nums ${
-                        STATUS_CONFIG[summary.lowestCourse.status].textClass
-                      }`}
-                    >
-                      {summary.lowestCourse.currentPercent}%
-                    </span>
-                  )}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {summary.lowestCourse
-                  ? summary.lowestCourse.status === "danger"
-                    ? `Danger (below ${HARD_LIMIT}% exam limit)`
-                    : summary.lowestCourse.hardSkips === 0
-                    ? `At ${HARD_LIMIT}% limit (0 skips left)`
-                    : `Eligible (${summary.lowestCourse.hardSkips} skips left)`
-                  : "No active courses"}
-              </p>
-            </div>
-
-            <div className="p-4 sm:p-5">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Highest attendance
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="font-bricolage text-lg font-bold uppercase tracking-wider text-foreground">
-                  {summary.safestCourse ? summary.safestCourse.code : "—"}
-                </span>
-                {summary.safestCourse?.currentPercent !== null &&
-                  summary.safestCourse?.currentPercent !== undefined && (
-                    <span className="font-bricolage text-2xl font-bold tracking-tight text-status-safe tabular-nums">
-                      {summary.safestCourse.currentPercent}%
-                    </span>
-                  )}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {summary.safestCourse
-                  ? `${summary.safestCourse.hardSkips} skips left before reaching ${HARD_LIMIT}%`
-                  : "No active courses"}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Course Grid — responsive compact course boxes */}
-        <section aria-labelledby="courses-heading" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2
-              id="courses-heading"
-              className="text-base font-semibold tracking-tight text-foreground sm:text-lg"
-            >
-              Courses ({analyzedCourses.length})
-            </h2>
-            <span className="text-[11px] text-muted-foreground">
-              Exam limit: {HARD_LIMIT}%
-            </span>
-          </div>
-
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3"
-          >
-            {analyzedCourses.map(({ course, analysis }) => {
-              const statusCfg = STATUS_CONFIG[analysis.status];
-              const symbolState = getStatusSymbolState(
-                analysis.status,
-                analysis.hardSkips
-              );
-              const hasStarted =
-                analysis.status !== "not_started" &&
-                analysis.currentPercent !== null;
-              const percentValue = hasStarted
-                ? analysis.currentPercent ?? 0
-                : null;
-              const creditText =
-                course.prCredits > 0
-                  ? `${course.thCredits} Th + ${course.prCredits} Pr`
-                  : `${course.thCredits} Th`;
-              const expanded = expandedCodes.has(analysis.code);
-              const panelId = `course-panel-${analysis.code}`;
-
-              // Primary collapsed readout: Skips left (at 75% limit)
-              const skipsLeftDisplay = hasStarted
-                ? `${analysis.hardSkips}`
-                : "—";
-
-              return (
-                <motion.div
-                  key={course.code}
-                  variants={itemVariants}
-                  className="flex flex-col border border-border bg-card transition-colors hover:border-foreground/30"
-                >
-                  {/* Collapsed view & Interactive toggle header */}
-                  <button
-                    type="button"
-                    onClick={() => toggleExpanded(analysis.code)}
-                    aria-expanded={expanded}
-                    aria-controls={panelId}
-                    className="flex w-full flex-col p-4 text-left focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-                  >
-                    {/* Header line: Course Code, Credits, and Expand Indicator */}
-                    <div className="flex w-full items-baseline justify-between gap-2 border-b border-border/60 pb-2.5">
-                      <div className="flex min-w-0 items-baseline gap-2">
-                        <span className="truncate font-bricolage text-lg font-bold uppercase tracking-wider text-foreground">
-                          {analysis.code}
-                        </span>
-                        <span className="truncate text-[11px] text-muted-foreground">
-                          {creditText}
-                        </span>
-                      </div>
+                  Semester Overview
+                </h2>
+                <div className="grid grid-cols-1 border border-border bg-card sm:grid-cols-3">
+                  <div className="border-b border-border p-4 sm:border-b-0 sm:border-r sm:p-5">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Courses at risk
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
                       <span
-                        aria-hidden="true"
-                        className="font-mono shrink-0 text-xs text-muted-foreground"
+                        className={`font-bricolage text-3xl font-bold tracking-tight tabular-nums ${
+                          summary.coursesAtRiskCount > 0
+                            ? "text-status-danger"
+                            : "text-foreground"
+                        }`}
                       >
-                        {expanded ? "−" : "+"}
+                        {summary.coursesAtRiskCount}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {summary.coursesAtRiskCount === 1 ? "course" : "courses"}
                       </span>
                     </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {summary.coursesAtRiskCount > 0
+                        ? `Below ${HARD_LIMIT}% exam eligibility threshold`
+                        : `All courses maintain ≥${HARD_LIMIT}% eligibility`}
+                    </p>
+                  </div>
 
-                    {/* Primary Collapsed Readout: Skips Left */}
-                    <div className="mt-3.5 flex items-end justify-between gap-3">
-                      <div>
-                        <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                          Skips Left
-                        </div>
-                        <div className="mt-1 flex items-baseline gap-1.5">
+                  <div className="border-b border-border p-4 sm:border-b-0 sm:border-r sm:p-5">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Lowest attendance
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="font-bricolage text-lg font-bold uppercase tracking-wider text-foreground">
+                        {summary.lowestCourse ? summary.lowestCourse.code : "—"}
+                      </span>
+                      {summary.lowestCourse?.currentPercent !== null &&
+                        summary.lowestCourse?.currentPercent !== undefined && (
                           <span
-                            className={`font-bricolage text-[40px] leading-none font-bold tracking-tight tabular-nums sm:text-[44px] ${
-                              hasStarted && analysis.hardSkips === 0
-                                ? analysis.status === "danger"
-                                  ? "text-status-danger"
-                                  : "text-status-warning"
-                                : "text-foreground"
+                            className={`font-bricolage text-2xl font-bold tracking-tight tabular-nums ${
+                              STATUS_CONFIG[summary.lowestCourse.status].textClass
                             }`}
                           >
-                            {skipsLeftDisplay}
+                            {summary.lowestCourse.currentPercent}%
                           </span>
-                          {hasStarted && (
-                            <span className="text-xs text-muted-foreground">
-                              to stay ≥{HARD_LIMIT}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Swiss editorial status badge with geometric mark */}
-                      <div className="flex flex-col items-end text-right">
-                        <div className="flex items-center gap-1.5">
-                          <StatusSymbol
-                            state={symbolState}
-                            className={`size-3.5 shrink-0 ${statusCfg.textClass}`}
-                          />
-                          <span
-                            className={`text-xs font-semibold uppercase tracking-wider ${statusCfg.textClass}`}
-                          >
-                            {statusCfg.label}
-                          </span>
-                        </div>
-                        <span className="mt-1 text-[10px] text-muted-foreground">
-                          {SYMBOL_SUBTITLE[symbolState]}
-                        </span>
-                      </div>
+                        )}
                     </div>
-                  </button>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {summary.lowestCourse
+                        ? summary.lowestCourse.status === "danger"
+                          ? `Danger (below ${HARD_LIMIT}% exam limit)`
+                          : summary.lowestCourse.hardSkips === 0
+                          ? `At ${HARD_LIMIT}% limit (0 skips left)`
+                          : `Eligible (${summary.lowestCourse.hardSkips} skips left)`
+                        : "No active courses"}
+                    </p>
+                  </div>
 
-                  {/* Expanded View with Smooth Drawer Animation */}
-                  <AnimatePresence initial={false}>
-                    {expanded && (
-                      <motion.div
-                        id={panelId}
-                        key={panelId}
-                        initial={
-                          shouldReduceMotion
-                            ? { opacity: 1 }
-                            : { height: 0, opacity: 0 }
-                        }
-                        animate={
-                          shouldReduceMotion
-                            ? { opacity: 1 }
-                            : { height: "auto", opacity: 1 }
-                        }
-                        exit={
-                          shouldReduceMotion
-                            ? { opacity: 0 }
-                            : { height: 0, opacity: 0 }
-                        }
-                        transition={{
-                          duration: shouldReduceMotion ? 0 : 0.24,
-                          ease: [0.16, 1, 0.3, 1],
-                        }}
-                        className="overflow-hidden border-t border-border"
+                  <div className="p-4 sm:p-5">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Highest attendance
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="font-bricolage text-lg font-bold uppercase tracking-wider text-foreground">
+                        {summary.safestCourse ? summary.safestCourse.code : "—"}
+                      </span>
+                      {summary.safestCourse?.currentPercent !== null &&
+                        summary.safestCourse?.currentPercent !== undefined && (
+                          <span className="font-bricolage text-2xl font-bold tracking-tight text-status-safe tabular-nums">
+                            {summary.safestCourse.currentPercent}%
+                          </span>
+                        )}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {summary.safestCourse
+                        ? `${summary.safestCourse.hardSkips} skips left before reaching ${HARD_LIMIT}%`
+                        : "No active courses"}
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Course Grid — responsive compact course boxes */}
+            <section aria-labelledby="courses-heading" className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2
+                  id="courses-heading"
+                  className="text-base font-semibold tracking-tight text-foreground sm:text-lg"
+                >
+                  Courses ({analyzedCourses.length})
+                </h2>
+                <span className="text-[11px] text-muted-foreground">
+                  Exam limit: {HARD_LIMIT}%
+                </span>
+              </div>
+
+              <motion.div
+                variants={containerVariants}
+                initial="hidden"
+                animate="visible"
+                className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                {analyzedCourses.map(({ course, analysis }) => {
+                  const statusCfg = STATUS_CONFIG[analysis.status];
+                  const symbolState = getStatusSymbolState(
+                    analysis.status,
+                    analysis.hardSkips
+                  );
+                  const hasStarted =
+                    analysis.status !== "not_started" &&
+                    analysis.currentPercent !== null;
+                  const percentValue = hasStarted
+                    ? analysis.currentPercent ?? 0
+                    : null;
+                  const creditText =
+                    course.prCredits > 0
+                      ? `${course.thCredits} Th + ${course.prCredits} Pr`
+                      : `${course.thCredits} Th`;
+                  const expanded = expandedCodes.has(analysis.code);
+                  const panelId = `course-panel-${analysis.code}`;
+                  const cardDisplay = getCourseCardDisplay(course, analysis);
+
+                  const thPlanned =
+                    course.thPlanned ??
+                    course.thCredits * WEEKS_PER_SEMESTER;
+                  const prPlanned = course.prPlanned ?? course.prHeld;
+
+                  return (
+                    <motion.div
+                      key={course.code}
+                      variants={itemVariants}
+                      className="flex flex-col border border-border bg-card transition-colors hover:border-foreground/30"
+                    >
+                      {/* Box Header Strip */}
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(analysis.code)}
+                        aria-expanded={expanded}
+                        aria-controls={panelId}
+                        className="flex w-full items-center justify-between border-b border-border bg-muted/40 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none"
                       >
-                        <div className="px-3 pb-3 sm:px-4 sm:pb-4">
-                          <div className="mt-3 space-y-3 border border-border/70 bg-muted/40 p-3">
-                            {/* Expanded Readout: Course Code + Attendance Percentage & Class counts */}
-                            <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-border/60 pb-2.5">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bricolage text-sm font-bold uppercase tracking-wider text-foreground">
-                                    {analysis.code}
-                                  </span>
-                                  <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                                    Current Attendance
-                                  </span>
-                                </div>
-                                <div
-                                  className={`font-bricolage mt-1 text-[28px] leading-none font-bold tracking-tight tabular-nums sm:text-[32px] ${
-                                    hasStarted
-                                      ? statusCfg.textClass
-                                      : "text-muted-foreground"
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="font-bricolage text-sm font-bold tracking-wider text-foreground">
+                            {course.code}
+                          </span>
+                          <span
+                            className="text-xs text-muted-foreground"
+                            aria-hidden="true"
+                          >
+                            ·
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {creditText}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`flex items-center gap-1 text-[11px] font-medium ${statusCfg.textClass}`}
+                          >
+                            <StatusSymbol state={symbolState} />
+                            <span>{statusCfg.label}</span>
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="font-mono text-xs text-muted-foreground"
+                          >
+                            {expanded ? "[-]" : "[+]"}
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Course Title */}
+                      <div className="px-3.5 pt-3">
+                        <h3 className="line-clamp-1 font-bricolage text-lg font-bold tracking-tight text-foreground">
+                          {course.code}
+                        </h3>
+                      </div>
+
+                      {/* Primary Collapsed Readout: Skips Left or Danger Guidance */}
+                      <div className="p-3.5">
+                        <div className="border border-border bg-background p-3 text-center">
+                          {cardDisplay.kind !== "normal" ? (
+                            <div className="flex min-h-[64px] flex-col items-center justify-center py-1 px-1">
+                              <p className="text-xs font-semibold leading-relaxed text-status-danger">
+                                {cardDisplay.message}
+                              </p>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                Skips left
+                              </div>
+                              <div className="mt-1 flex items-baseline justify-center gap-1.5">
+                                <span
+                                  className={`font-bricolage text-[40px] font-bold leading-none tracking-tight tabular-nums sm:text-[44px] ${
+                                    analysis.hardSkips === 0
+                                      ? "text-status-warning"
+                                      : "text-foreground"
                                   }`}
                                 >
-                                  {hasStarted ? `${percentValue}%` : "--%"}
+                                  {cardDisplay.displayValue}
+                                </span>
+                                {hasStarted && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {analysis.hardSkips === 1 ? "class" : "classes"}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1 text-[10px] text-muted-foreground">
+                                {SYMBOL_SUBTITLE[symbolState]}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Inline Expanded Drawer */}
+                      <AnimatePresence initial={false}>
+                        {expanded && (
+                          <motion.div
+                            id={panelId}
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{
+                              height: "auto",
+                              opacity: 1,
+                              transition: {
+                                height: {
+                                  duration: shouldReduceMotion ? 0 : 0.28,
+                                  ease: [0.16, 1, 0.3, 1],
+                                },
+                                opacity: {
+                                  duration: shouldReduceMotion ? 0 : 0.05,
+                                },
+                              },
+                            }}
+                            exit={{
+                              height: 0,
+                              opacity: 0,
+                              transition: {
+                                height: {
+                                  duration: shouldReduceMotion ? 0 : 0.22,
+                                  ease: [0.16, 1, 0.3, 1],
+                                },
+                                opacity: {
+                                  duration: shouldReduceMotion ? 0 : 0.15,
+                                },
+                              },
+                            }}
+                            className="overflow-hidden border-t border-border bg-muted/20"
+                          >
+                            <div className="p-3.5 space-y-3.5">
+                              {/* Expanded Attendance Details */}
+                              <div className="border border-border bg-background p-3 space-y-3">
+                                <div className="flex items-baseline justify-between">
+                                  <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                    Attendance
+                                  </span>
+                                  {percentValue !== null ? (
+                                    <span
+                                      className={`font-bricolage text-[28px] font-bold leading-none tracking-tight tabular-nums sm:text-[32px] ${statusCfg.textClass}`}
+                                    >
+                                      {percentValue}%
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">
+                                      Not started
+                                    </span>
+                                  )}
+                                </div>
+
+                                <AttendanceScale
+                                  code={course.code}
+                                  percent={percentValue}
+                                  status={analysis.status}
+                                />
+
+                                <div className="grid grid-cols-2 gap-2 border-t border-border/60 pt-2 text-[11px]">
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Theory:
+                                    </span>{" "}
+                                    <span className="font-medium text-foreground">
+                                      {course.thPresent}/{course.thHeld}
+                                    </span>
+                                  </div>
+                                  {course.prCredits > 0 && (
+                                    <div>
+                                      <span className="text-muted-foreground">
+                                        Practical:
+                                      </span>{" "}
+                                      <span className="font-medium text-foreground">
+                                        {course.prPresent}/{course.prHeld}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
-                              <div className="text-right text-[11px] text-muted-foreground">
-                                {hasStarted
-                                  ? course.prCredits > 0
-                                    ? `Theory: ${course.thPresent}/${course.thHeld} · Lab: ${course.prPresent}/${course.prHeld}`
-                                    : `Theory: ${course.thPresent}/${course.thHeld}`
-                                  : "0/0 classes held"}
-                              </div>
-                            </div>
 
-                            {/* Attendance Scale Bar */}
-                            <AttendanceScale
-                              code={analysis.code}
-                              percent={percentValue}
-                              status={analysis.status}
-                            />
-                          </div>
+                              {/* Projected skips breakdown */}
+                              <div className="space-y-1.5 text-xs">
+                                <div className="flex items-center justify-between border-b border-border/60 pb-1">
+                                  <span className="text-muted-foreground">
+                                    Planned classes:
+                                  </span>
+                                  <span className="font-medium text-foreground">
+                                    {thPlanned} theory
+                                    {prPlanned > 0 ? ` + ${prPlanned} practical` : ""}
+                                  </span>
+                                </div>
+                                {cardDisplay.kind !== "danger_unrecoverable" && (
+                                  <div className="flex items-center justify-between border-b border-border/60 pb-1">
+                                    <span className="text-muted-foreground">
+                                      75% hard limit:
+                                    </span>
+                                    <span
+                                      className={`font-medium ${
+                                        analysis.hardSkips === 0
+                                          ? "text-status-warning"
+                                          : "text-foreground"
+                                      }`}
+                                    >
+                                      {analysis.hardSkips}{" "}
+                                      {analysis.hardSkips === 1 ? "skip" : "skips"}{" "}
+                                      left
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
 
-                          {/* Theory / Practical Detailed Breakdown */}
-                          <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <div className="border border-border bg-muted/50 p-2 text-left">
-                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Theory
-                              </div>
-                              <div className="mt-0.5 text-xs font-medium text-foreground">
-                                {course.thPresent} / {course.thHeld} held
-                              </div>
-                              <div className="mt-0.5 text-[10px] text-muted-foreground">
-                                Planned:{" "}
-                                {course.thPlanned ??
-                                  course.thCredits * WEEKS_PER_SEMESTER}
-                              </div>
-                            </div>
-                            <div className="border border-border bg-muted/50 p-2 text-left">
-                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Practical
-                              </div>
-                              <div className="mt-0.5 text-xs font-medium text-foreground">
-                                {course.prCredits > 0
-                                  ? `${course.prPresent} / ${course.prHeld} held`
-                                  : "None"}
-                              </div>
-                              <div className="mt-0.5 text-[10px] text-muted-foreground">
-                                {course.prCredits > 0
-                                  ? `${course.prCredits} Lab Credit`
-                                  : "Theory only"}
-                              </div>
-                            </div>
-                          </div>
+                              {/* Contextual Guidance */}
+                              {cardDisplay.kind !== "normal" && (
+                                <div className="mt-2 border border-status-danger/40 bg-status-danger/10 p-2 text-xs text-status-danger">
+                                  <p className="font-medium leading-relaxed">
+                                    {cardDisplay.message}
+                                  </p>
+                                </div>
+                              )}
+                              {analysis.status === "warning" &&
+                                analysis.hardSkips === 0 && (
+                                  <div className="mt-2 border border-status-warning/40 bg-status-warning/10 p-2 text-xs text-status-warning">
+                                    <p className="font-medium leading-relaxed">
+                                      Exactly at the {HARD_LIMIT}% exam
+                                      eligibility limit. Any further absence will
+                                      result in exam ineligibility.
+                                    </p>
+                                  </div>
+                                )}
+                              {analysis.status === "not_started" && (
+                                <div className="mt-2 border border-border bg-muted/50 p-2 text-xs text-muted-foreground">
+                                  <span>
+                                    No classes have been recorded yet for this course.
+                                  </span>
+                                </div>
+                              )}
 
-                          {/* Skips Allowance Detail */}
-                          <div className="mt-2 border border-border bg-muted/50 p-2 text-[11px]">
-                            <div className="flex items-center justify-between">
-                              <span className="text-muted-foreground">
-                                Absences allowed before falling below {HARD_LIMIT}%:
-                              </span>
-                              <span className="font-bricolage font-semibold text-foreground tabular-nums">
-                                {analysis.hardSkips} {analysis.hardSkips === 1 ? "skip" : "skips"} left
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Contextual Guidance */}
-                          {analysis.status === "danger" && (
-                            <div className="mt-2 border border-status-danger/40 bg-status-danger/10 p-2 text-xs text-status-danger">
-                              <p className="font-medium leading-relaxed">
-                                Attendance is below {HARD_LIMIT}%. Attend every remaining class to recover. You can miss 0 more classes.
+                              <p className="mt-2 text-[10px] leading-tight text-muted-foreground">
+                                Calculated per {WEEKS_PER_SEMESTER}-week curriculum
+                                rules.
                               </p>
                             </div>
-                          )}
-                          {analysis.status === "warning" && analysis.hardSkips === 0 && (
-                            <div className="mt-2 border border-status-warning/40 bg-status-warning/10 p-2 text-xs text-status-warning">
-                              <p className="font-medium leading-relaxed">
-                                Exactly at the {HARD_LIMIT}% exam eligibility limit. Any further absence will result in exam ineligibility.
-                              </p>
-                            </div>
-                          )}
-                          {analysis.status === "not_started" && (
-                            <div className="mt-2 border border-border bg-muted/50 p-2 text-xs text-muted-foreground">
-                              <span>
-                                No classes have been recorded yet for this course.
-                              </span>
-                            </div>
-                          )}
-
-                          <p className="mt-2 text-[10px] leading-tight text-muted-foreground">
-                            Calculated per {WEEKS_PER_SEMESTER}-week curriculum rules.
-                          </p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              );
-            })}
-          </motion.div>
-        </section>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            </section>
+          </>
+        )}
 
         {/* Disclaimer Note */}
         <footer className="border border-border bg-card p-3.5 text-center text-xs text-muted-foreground shadow-none sm:p-4">
           <div className="flex items-center justify-center gap-2">
             <Info className="size-4 shrink-0" />
             <p>
-              Estimates based on a {WEEKS_PER_SEMESTER}-teaching-week semester. The official university record decides eligibility.
+              Estimates based on a {WEEKS_PER_SEMESTER}-teaching-week semester. The
+              official university record decides eligibility.
             </p>
           </div>
         </footer>
